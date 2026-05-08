@@ -2,11 +2,7 @@
 
 import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
-import {
-  getSupabaseConfigDiagnostics,
-  getSupabaseConfigError,
-  supabase,
-} from "../lib/supabase";
+import { supabase } from "../lib/supabase";
 
 export function AuthPanel() {
   const router = useRouter();
@@ -20,17 +16,6 @@ export function AuthPanel() {
     setMessage("");
 
     try {
-      const configError = getSupabaseConfigError();
-
-      if (configError) {
-        console.error("[Supabase Auth] Configuracao invalida", {
-          ...getSupabaseConfigDiagnostics(),
-          error: configError,
-        });
-        setMessage("Configuracao do Supabase invalida. Verifique o console.");
-        return;
-      }
-
       const form = new FormData(event.currentTarget);
       const email = String(form.get("email")).trim();
       const password = String(form.get("password"));
@@ -60,7 +45,6 @@ export function AuthPanel() {
       console.error("[Supabase Auth] Falha de conexao ou fetch", {
         mode,
         error,
-        diagnostics: getSupabaseConfigDiagnostics(),
         sessionCheck: await supabase.auth.getSession().catch((sessionError) => ({
           error: sessionError,
         })),
