@@ -15,6 +15,7 @@ export type Service = {
   duration_minutes: number;
   price: number;
   active: boolean;
+  display_order: number;
   created_at?: string;
 };
 

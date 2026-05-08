@@ -33,6 +33,8 @@ Configure `.env.local`:
 ```env
 NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
+RESEND_API_KEY=re_your_api_key
+NOTIFICATION_EMAIL=owner@example.com
 ```
 
 Acesse `http://localhost:3000`.
@@ -70,6 +72,8 @@ Tambem inclui RLS basico:
 ```env
 NEXT_PUBLIC_SUPABASE_URL
 NEXT_PUBLIC_SUPABASE_ANON_KEY
+RESEND_API_KEY
+NOTIFICATION_EMAIL
 ```
 
 4. Rode o deploy.

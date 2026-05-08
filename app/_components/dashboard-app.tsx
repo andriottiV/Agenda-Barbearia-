@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { DragEvent, FormEvent, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { User } from "@supabase/supabase-js";
 import { supabase } from "../lib/supabase";
@@ -36,6 +36,10 @@ export function DashboardApp() {
   const [clients, setClients] = useState<Client[]>([]);
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [notice, setNotice] = useState("");
+  const [editingServiceId, setEditingServiceId] = useState<string | null>(null);
+  const [deleteCandidate, setDeleteCandidate] = useState<Service | null>(null);
+  const [draggedServiceId, setDraggedServiceId] = useState<string | null>(null);
+  const [serviceSavingId, setServiceSavingId] = useState<string | null>(null);
 
   const publicPath = barbershop ? `/agendar/${barbershop.slug}` : "";
 
@@ -84,7 +88,8 @@ export function DashboardApp() {
           .from("services")
           .select("*")
           .eq("barbershop_id", shop.id)
-          .order("name"),
+          .order("display_order", { ascending: true })
+          .order("name", { ascending: true }),
         supabase
           .from("business_hours")
           .select("*")
@@ -194,6 +199,7 @@ export function DashboardApp() {
       price: toMoney(formData.get("price")),
       duration_minutes: Number(formData.get("duration_minutes")),
       active: formData.get("active") === "on",
+      display_order: services.length,
     };
 
     setActionLoading(true);
@@ -208,12 +214,126 @@ export function DashboardApp() {
   }
 
   async function toggleService(service: Service) {
-    const { error } = await supabase
-      .from("services")
-      .update({ active: !service.active })
-      .eq("id", service.id);
-    setNotice(error ? friendlySupabaseError(error) : "Servico atualizado.");
-    await load();
+    setServiceSavingId(service.id);
+    try {
+      const { error } = await supabase
+        .from("services")
+        .update({ active: !service.active })
+        .eq("id", service.id);
+      setNotice(error ? friendlySupabaseError(error) : "Servico atualizado.");
+      await load();
+    } finally {
+      setServiceSavingId(null);
+    }
+  }
+
+  async function updateService(event: FormEvent<HTMLFormElement>, service: Service) {
+    event.preventDefault();
+
+    const form = event.currentTarget;
+    const formData = new FormData(form);
+    const payload = {
+      name: String(formData.get("name")).trim(),
+      price: toMoney(formData.get("price")),
+      duration_minutes: Number(formData.get("duration_minutes")),
+      active: formData.get("active") === "on",
+    };
+
+    setServiceSavingId(service.id);
+    try {
+      const { error } = await supabase
+        .from("services")
+        .update(payload)
+        .eq("id", service.id);
+
+      setNotice(error ? friendlySupabaseError(error) : "Servico salvo.");
+      if (!error) setEditingServiceId(null);
+      await load();
+    } finally {
+      setServiceSavingId(null);
+    }
+  }
+
+  async function archiveService(service: Service) {
+    setServiceSavingId(service.id);
+    try {
+      const { error } = await supabase
+        .from("services")
+        .update({ active: false })
+        .eq("id", service.id);
+
+      setNotice(error ? friendlySupabaseError(error) : "Servico arquivado.");
+      setDeleteCandidate(null);
+      await load();
+    } finally {
+      setServiceSavingId(null);
+    }
+  }
+
+  async function persistServiceOrder(nextServices: Service[]) {
+    const orderedServices = nextServices.map((service, index) => ({
+      ...service,
+      display_order: index,
+    }));
+
+    setServices(orderedServices);
+    setActionLoading(true);
+
+    try {
+      const results = await Promise.all(
+        orderedServices.map((service, index) =>
+          supabase
+            .from("services")
+            .update({ display_order: index })
+            .eq("id", service.id),
+        ),
+      );
+
+      const firstError = results.find((result) => result.error)?.error;
+      setNotice(firstError ? friendlySupabaseError(firstError) : "Ordem atualizada.");
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
+  async function moveService(serviceId: string, direction: -1 | 1) {
+    const currentIndex = services.findIndex((service) => service.id === serviceId);
+    const nextIndex = currentIndex + direction;
+
+    if (currentIndex < 0 || nextIndex < 0 || nextIndex >= services.length) {
+      return;
+    }
+
+    const nextServices = [...services];
+    const [service] = nextServices.splice(currentIndex, 1);
+    nextServices.splice(nextIndex, 0, service);
+    await persistServiceOrder(nextServices);
+  }
+
+  async function dropServiceOn(
+    event: DragEvent<HTMLElement>,
+    targetServiceId: string,
+  ) {
+    event.preventDefault();
+
+    if (!draggedServiceId || draggedServiceId === targetServiceId) {
+      setDraggedServiceId(null);
+      return;
+    }
+
+    const fromIndex = services.findIndex((service) => service.id === draggedServiceId);
+    const toIndex = services.findIndex((service) => service.id === targetServiceId);
+
+    if (fromIndex < 0 || toIndex < 0) {
+      setDraggedServiceId(null);
+      return;
+    }
+
+    const nextServices = [...services];
+    const [service] = nextServices.splice(fromIndex, 1);
+    nextServices.splice(toIndex, 0, service);
+    setDraggedServiceId(null);
+    await persistServiceOrder(nextServices);
   }
 
   async function saveHours(event: FormEvent<HTMLFormElement>) {
@@ -380,7 +500,7 @@ export function DashboardApp() {
         </nav>
 
         {notice ? (
-          <p className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+          <p className="fixed right-4 top-4 z-40 max-w-sm rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900 shadow-sm">
             {notice}
           </p>
         ) : null}
@@ -536,29 +656,158 @@ export function DashboardApp() {
               </form>
             </Panel>
             <Panel title="Servicos">
-              <div className="grid gap-3">
-                {services.map((service) => (
-                  <article
-                    key={service.id}
-                    className="flex items-center justify-between rounded-md border border-slate-200 bg-white p-4"
-                  >
-                    <div>
-                      <p className="font-bold">{service.name}</p>
-                      <p className="text-sm text-slate-600">
-                        {currency(Number(service.price))} -{" "}
-                        {service.duration_minutes} min -{" "}
-                        {service.active ? "ativo" : "pausado"}
-                      </p>
-                    </div>
-                    <button
-                      onClick={() => toggleService(service)}
-                      className="small-button"
-                    >
-                      {service.active ? "Pausar" : "Ativar"}
-                    </button>
-                  </article>
-                ))}
-                {!services.length ? (
+              <div className="grid gap-3" aria-live="polite">
+                {loading ? (
+                  <>
+                    <ServiceSkeleton />
+                    <ServiceSkeleton />
+                  </>
+                ) : null}
+                {!loading &&
+                  services.map((service, index) => {
+                    const isEditing = editingServiceId === service.id;
+                    const isSaving = serviceSavingId === service.id;
+
+                    return (
+                      <article
+                        key={service.id}
+                        draggable={!isEditing}
+                        onDragStart={() => setDraggedServiceId(service.id)}
+                        onDragOver={(event) => event.preventDefault()}
+                        onDrop={(event) => dropServiceOn(event, service.id)}
+                        onDragEnd={() => setDraggedServiceId(null)}
+                        className={`rounded-md border bg-white p-4 shadow-sm transition ${
+                          draggedServiceId === service.id
+                            ? "border-emerald-600 opacity-70"
+                            : "border-slate-200"
+                        }`}
+                      >
+                        {isEditing ? (
+                          <form
+                            onSubmit={(event) => updateService(event, service)}
+                            className="grid gap-3"
+                          >
+                            <input
+                              name="name"
+                              defaultValue={service.name}
+                              required
+                              className="field"
+                            />
+                            <div className="grid gap-3 sm:grid-cols-2">
+                              <input
+                                name="price"
+                                defaultValue={String(Number(service.price).toFixed(2)).replace(
+                                  ".",
+                                  ",",
+                                )}
+                                required
+                                className="field"
+                              />
+                              <input
+                                name="duration_minutes"
+                                type="number"
+                                min={15}
+                                step={15}
+                                defaultValue={service.duration_minutes}
+                                required
+                                className="field"
+                              />
+                            </div>
+                            <label className="flex items-center gap-2 text-sm text-slate-700">
+                              <input
+                                name="active"
+                                type="checkbox"
+                                defaultChecked={service.active}
+                              />
+                              Ativo
+                            </label>
+                            <div className="flex flex-wrap gap-2">
+                              <button
+                                disabled={isSaving}
+                                className="primary-button px-4 py-2 text-sm"
+                              >
+                                {isSaving ? "Salvando..." : "Salvar"}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setEditingServiceId(null)}
+                                className="small-button"
+                              >
+                                Cancelar
+                              </button>
+                            </div>
+                          </form>
+                        ) : (
+                          <div className="grid gap-4 sm:grid-cols-[1fr_auto] sm:items-center">
+                            <div className="min-w-0">
+                              <div className="mb-2 flex flex-wrap items-center gap-2">
+                                <span className="cursor-grab select-none rounded border border-slate-200 px-2 py-1 text-xs text-slate-500">
+                                  Arrastar
+                                </span>
+                                <span
+                                  className={`rounded px-2 py-1 text-xs font-bold ${
+                                    service.active
+                                      ? "bg-emerald-50 text-emerald-800"
+                                      : "bg-slate-100 text-slate-600"
+                                  }`}
+                                >
+                                  {service.active ? "Ativo" : "Pausado"}
+                                </span>
+                              </div>
+                              <p className="truncate text-lg font-bold text-slate-950">
+                                {service.name}
+                              </p>
+                              <p className="mt-1 text-sm text-slate-600">
+                                {currency(Number(service.price))} -{" "}
+                                {service.duration_minutes} min
+                              </p>
+                            </div>
+                            <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:justify-end">
+                              <button
+                                type="button"
+                                disabled={index === 0 || actionLoading}
+                                onClick={() => moveService(service.id, -1)}
+                                className="small-button disabled:opacity-50"
+                              >
+                                Subir
+                              </button>
+                              <button
+                                type="button"
+                                disabled={index === services.length - 1 || actionLoading}
+                                onClick={() => moveService(service.id, 1)}
+                                className="small-button disabled:opacity-50"
+                              >
+                                Descer
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setEditingServiceId(service.id)}
+                                className="small-button"
+                              >
+                                Editar
+                              </button>
+                              <button
+                                type="button"
+                                disabled={isSaving}
+                                onClick={() => toggleService(service)}
+                                className="small-button"
+                              >
+                                {service.active ? "Pausar" : "Ativar"}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setDeleteCandidate(service)}
+                                className="small-button border-red-200 text-red-700"
+                              >
+                                Excluir
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </article>
+                    );
+                  })}
+                {!loading && !services.length ? (
                   <p className="text-sm text-slate-600">
                     Cadastre o primeiro servico para liberar o agendamento publico.
                   </p>
@@ -684,7 +933,50 @@ export function DashboardApp() {
           </Panel>
         ) : null}
       </div>
+
+      {deleteCandidate ? (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/40 px-4">
+          <div className="w-full max-w-md rounded-md border border-slate-200 bg-white p-5 shadow-lg">
+            <h2 className="text-xl font-bold text-slate-950">Excluir servico?</h2>
+            <p className="mt-2 text-sm leading-6 text-slate-600">
+              Para preservar agendamentos antigos, o servico sera arquivado e
+              deixara de aparecer no link publico.
+            </p>
+            <p className="mt-3 rounded-md bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-800">
+              {deleteCandidate.name}
+            </p>
+            <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              <button
+                type="button"
+                onClick={() => setDeleteCandidate(null)}
+                className="small-button"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                disabled={serviceSavingId === deleteCandidate.id}
+                onClick={() => archiveService(deleteCandidate)}
+                className="rounded-md bg-red-700 px-4 py-2 text-sm font-bold text-white transition hover:bg-red-800 disabled:opacity-60"
+              >
+                {serviceSavingId === deleteCandidate.id
+                  ? "Arquivando..."
+                  : "Arquivar servico"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </main>
+  );
+}
+
+function ServiceSkeleton() {
+  return (
+    <div className="animate-pulse rounded-md border border-slate-200 bg-white p-4">
+      <div className="mb-3 h-5 w-2/3 rounded bg-slate-200" />
+      <div className="h-4 w-1/2 rounded bg-slate-100" />
+    </div>
   );
 }
 

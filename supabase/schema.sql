@@ -17,8 +17,12 @@ create table if not exists public.services (
   duration_minutes integer not null default 30 check (duration_minutes > 0),
   price numeric(10, 2) not null default 0 check (price >= 0),
   active boolean not null default true,
+  display_order integer not null default 0,
   created_at timestamptz not null default now()
 );
+
+alter table public.services
+add column if not exists display_order integer not null default 0;
 
 create table if not exists public.clients (
   id uuid primary key default gen_random_uuid(),
@@ -58,6 +62,9 @@ where status <> 'cancelled';
 
 create index if not exists services_barbershop_id_idx
 on public.services (barbershop_id);
+
+create index if not exists services_barbershop_order_idx
+on public.services (barbershop_id, display_order, name);
 
 create index if not exists clients_barbershop_id_idx
 on public.clients (barbershop_id);

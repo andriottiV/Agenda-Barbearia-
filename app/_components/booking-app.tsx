@@ -80,7 +80,8 @@ export function BookingApp({ slug }: { slug: string }) {
           .select("*")
           .eq("barbershop_id", currentShop.id)
           .eq("active", true)
-          .order("name"),
+          .order("display_order", { ascending: true })
+          .order("name", { ascending: true }),
         supabase
           .from("business_hours")
           .select("*")
@@ -174,8 +175,42 @@ export function BookingApp({ slug }: { slug: string }) {
       setServiceId("");
       setStartTime("");
       await reloadAppointments(barbershop.id, date);
+      notifyNewAppointment({
+        customerName,
+        customerPhone,
+        serviceName: service.name,
+        appointmentDate: date,
+        appointmentTime: startTime,
+        barbershopName: barbershop.name,
+      });
     } finally {
       setBooking(false);
+    }
+  }
+
+  async function notifyNewAppointment(payload: {
+    customerName: string;
+    customerPhone: string;
+    serviceName: string;
+    appointmentDate: string;
+    appointmentTime: string;
+    barbershopName: string;
+  }) {
+    try {
+      const response = await fetch("/api/notifications/new-appointment", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) {
+        console.error("[Notifications] Falha ao enviar e-mail", {
+          status: response.status,
+          body: await response.text(),
+        });
+      }
+    } catch (error) {
+      console.error("[Notifications] Falha ao chamar API de e-mail", error);
     }
   }
 
