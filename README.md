@@ -1,36 +1,101 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Agenda Barbearia
 
-## Getting Started
+MVP simples de agenda online para barbearias com **Next.js App Router**,
+**TypeScript**, **Tailwind CSS 4**, **Supabase Auth**, **Supabase Database** e
+deploy na **Vercel**.
 
-First, run the development server:
+Esta versao remove Manus OAuth, Express, tRPC, Drizzle, MySQL/TiDB e variaveis
+`VITE_*`/`BUILT_IN_FORGE_*`.
+
+## Funcionalidades
+
+- Login/cadastro com Supabase Auth
+- Dashboard administrativo em `/dashboard`
+- Agenda por data, status e link de confirmacao via WhatsApp
+- CRUD enxuto de servicos
+- Horarios de funcionamento por dia da semana
+- Cadastro simples de clientes
+- Link publico `/agendar/[slug]`
+- Bloqueio visual de horarios ocupados
+- Cliente agenda sem login e sem criar conta
+- Confirmacao por link `wa.me`
+
+## Rodar localmente
+
+```bash
+npm install
+cp .env.example .env.local
+npm run dev
+```
+
+Configure `.env.local`:
+
+```env
+NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
+```
+
+Acesse `http://localhost:3000`.
+
+## Banco Supabase
+
+1. Crie um projeto no Supabase.
+2. Abra o SQL Editor.
+3. Execute o arquivo `supabase/schema.sql`.
+4. Em Authentication, habilite login por e-mail/senha.
+5. Crie uma conta pelo app e configure o perfil no dashboard.
+
+O schema inclui tabelas:
+
+- `barbershops`
+- `services`
+- `business_hours`
+- `clients`
+- `appointments`
+- `booked_slots`
+
+Tambem inclui RLS basico:
+
+- Admin autenticado gerencia registros onde `owner_id = auth.uid()`
+- Pagina publica pode ler barbearias, servicos ativos, horarios e slots ocupados
+- Pagina publica agenda via RPC `create_public_appointment`, que cria cliente e
+  agendamento no Supabase
+
+## Deploy na Vercel
+
+1. Envie o projeto para o GitHub.
+2. Importe na Vercel.
+3. Adicione as variaveis:
+
+```env
+NEXT_PUBLIC_SUPABASE_URL
+NEXT_PUBLIC_SUPABASE_ANON_KEY
+```
+
+4. Rode o deploy.
+
+## Scripts
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm run lint
+npm run build
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Estrutura
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```text
+app/
+  agendar/[slug]/page.tsx
+  dashboard/page.tsx
+  _components/
+  lib/
+supabase/schema.sql
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Observacoes do MVP
 
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+O bloqueio de horario usa o indice unico parcial
+`(barbershop_id, appointment_date, appointment_time)` para agendamentos nao
+cancelados. A UI remove os horarios ja ocupados e a RPC tambem protege contra
+duplicidade no momento de salvar.
