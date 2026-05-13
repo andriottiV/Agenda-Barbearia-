@@ -1,3 +1,4 @@
+"use client";
 import { createClient } from "@supabase/supabase-js";
 
 function cleanEnvValue(value: string | undefined) {
@@ -12,19 +13,20 @@ const rawSupabaseAnonKey = cleanEnvValue(
 const supabaseUrl = rawSupabaseUrl?.replace(/\/+$/, "");
 const supabaseAnonKey = rawSupabaseAnonKey;
 
-const hasValidUrl = Boolean(
-  supabaseUrl?.startsWith("https://") && supabaseUrl.endsWith(".supabase.co"),
-);
+const hasUrl = Boolean(supabaseUrl);
+const hasAnonKey = Boolean(supabaseAnonKey);
+const hasValidUrl = Boolean(supabaseUrl?.startsWith("https://"));
 const hasValidAnonKey = Boolean(supabaseAnonKey?.startsWith("eyJ"));
 
 export function getSupabaseAuthDiagnostics() {
   return {
     url: supabaseUrl ?? null,
-    hasUrl: Boolean(supabaseUrl),
+    hasUrl,
     hasValidUrl,
-    hasKey: Boolean(supabaseAnonKey),
+    hasKey: hasAnonKey,
     keyLength: supabaseAnonKey?.length ?? 0,
     hasValidAnonKey,
+    isConfigured: hasUrl && hasAnonKey && hasValidUrl && hasValidAnonKey,
   };
 }
 

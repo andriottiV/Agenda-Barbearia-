@@ -1,12 +1,21 @@
 import { NextResponse } from "next/server";
 import { Resend } from "resend";
+import { getResendConfig } from "../../lib/resend-server";
 
 export async function GET() {
   try {
-    const apiKey = process.env.RESEND_API_KEY;
-    const notificationEmail = process.env.NOTIFICATION_EMAIL;
+    const { apiKey, notificationEmail, fromEmail, diagnostics } =
+      getResendConfig();
+
+    console.log("[TestEmail] Configuracao Resend", diagnostics);
 
     if (!apiKey || !notificationEmail) {
+      console.error("[TestEmail] RESEND_API_KEY ou NOTIFICATION_EMAIL ausente", {
+        hasApiKey: Boolean(apiKey),
+        hasNotificationEmail: Boolean(notificationEmail),
+        fromEmail,
+      });
+
       return NextResponse.json(
         {
           success: false,
@@ -20,12 +29,36 @@ export async function GET() {
 
     const resend = new Resend(apiKey);
 
-    const result = await resend.emails.send({
-      from: "Agenda Barbearia <onboarding@resend.dev>",
+    console.log("[TestEmail] Enviando e-mail de teste", {
+      from: fromEmail,
       to: notificationEmail,
-      subject: "Teste de notificação da agenda",
-      html: "<h2>Funcionou!</h2><p>Seu sistema de e-mail está enviando notificações.</p>",
     });
+
+    const result = await resend.emails.send({
+      from: fromEmail,
+      to: notificationEmail,
+      subject: "Teste de notificacao da agenda",
+      html: "<h2>Funcionou!</h2><p>Seu sistema de e-mail esta enviando notificacoes.</p>",
+    });
+
+    console.log("[TestEmail] Resposta completa do Resend", result);
+
+    if (result.error) {
+      console.error("[TestEmail] Erro retornado pelo Resend", {
+        error: result.error,
+        result,
+        diagnostics,
+      });
+
+      return NextResponse.json(
+        {
+          success: false,
+          error: result.error.message,
+          details: result.error,
+        },
+        { status: 400 },
+      );
+    }
 
     return NextResponse.json({
       success: true,

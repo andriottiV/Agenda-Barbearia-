@@ -2,51 +2,97 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { PremiumButton, PremiumInput } from "../../components/ui/premium";
 import { getSupabaseAuthDiagnostics, supabase } from "../lib/supabase";
 
+type AuthMode = "login" | "signup";
+
 const CONNECTION_ERROR_MESSAGE =
-  "Não foi possível conectar ao Supabase. Verifique URL, ANON KEY, projeto ativo e bloqueio de rede.";
+  "Não foi possível conectar ao Supabase. Verifique as variáveis de ambiente.";
 
 function getErrorInfo(error: unknown) {
   if (error instanceof Error) {
     return {
       name: error.name,
       message: error.message,
+      status: undefined as number | undefined,
     };
   }
 
   if (error && typeof error === "object") {
-    const maybeError = error as { name?: unknown; message?: unknown };
+    const maybeError = error as {
+      name?: unknown;
+      message?: unknown;
+      status?: unknown;
+    };
     return {
       name: typeof maybeError.name === "string" ? maybeError.name : "UnknownError",
       message:
         typeof maybeError.message === "string"
           ? maybeError.message
           : "Erro desconhecido.",
+      status: typeof maybeError.status === "number" ? maybeError.status : undefined,
     };
   }
 
   return {
     name: "UnknownError",
     message: String(error),
+    status: undefined,
   };
 }
 
 function isFetchConnectionError(error: unknown) {
   const { name, message } = getErrorInfo(error);
-  return name === "AuthRetryableFetchError" || message.includes("Failed to fetch");
+  return (
+    name === "AuthRetryableFetchError" ||
+    message.includes("Failed to fetch") ||
+    message.includes("failed to fetch") ||
+    message.includes("network")
+  );
 }
 
-export function AuthPanel() {
+export function AuthPanel({
+  mode: controlledMode,
+  onModeChange,
+}: {
+  mode?: AuthMode;
+  onModeChange?: (mode: AuthMode) => void;
+}) {
   const router = useRouter();
-  const [mode, setMode] = useState<"login" | "signup">("login");
+  const [uncontrolledMode, setUncontrolledMode] = useState<AuthMode>("login");
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
+  const mode = controlledMode ?? uncontrolledMode;
+
+  function setMode(nextMode: AuthMode) {
+    setMessage("");
+    if (onModeChange) {
+      onModeChange(nextMode);
+      return;
+    }
+    setUncontrolledMode(nextMode);
+  }
 
   useEffect(() => {
     async function checkSupabaseConnection() {
       const diagnostics = getSupabaseAuthDiagnostics();
-      console.info("[Supabase Auth] Diagnostico inicial", diagnostics);
+      const origin = window.location.origin;
+      console.info("[Supabase Auth] Diagnostico inicial", {
+        ...diagnostics,
+        urlExists: diagnostics.hasUrl,
+        anonKeyExists: diagnostics.hasKey,
+        origin,
+      });
+
+      if (!diagnostics.hasUrl || !diagnostics.hasKey) {
+        console.error("[Supabase Auth] Variáveis de ambiente Supabase ausentes", {
+          ...diagnostics,
+          origin,
+        });
+        setMessage(CONNECTION_ERROR_MESSAGE);
+        return;
+      }
 
       try {
         const sessionResult = await supabase.auth.getSession();
@@ -55,8 +101,12 @@ export function AuthPanel() {
           const errorInfo = getErrorInfo(sessionResult.error);
           console.error("[Supabase Auth] getSession retornou erro", {
             ...diagnostics,
+            urlExists: diagnostics.hasUrl,
+            anonKeyExists: diagnostics.hasKey,
+            origin,
             errorName: errorInfo.name,
             errorMessage: errorInfo.message,
+            errorStatus: errorInfo.status,
           });
 
           if (isFetchConnectionError(sessionResult.error)) {
@@ -67,8 +117,12 @@ export function AuthPanel() {
         const errorInfo = getErrorInfo(error);
         console.error("[Supabase Auth] getSession falhou", {
           ...diagnostics,
+          urlExists: diagnostics.hasUrl,
+          anonKeyExists: diagnostics.hasKey,
+          origin,
           errorName: errorInfo.name,
           errorMessage: errorInfo.message,
+          errorStatus: errorInfo.status,
         });
         setMessage(CONNECTION_ERROR_MESSAGE);
       }
@@ -84,14 +138,28 @@ export function AuthPanel() {
 
     try {
       const diagnostics = getSupabaseAuthDiagnostics();
+      const origin = window.location.origin;
       const form = new FormData(event.currentTarget);
       const email = String(form.get("email")).trim();
       const password = String(form.get("password"));
 
       console.info("[Supabase Auth] Iniciando autenticacao", {
         ...diagnostics,
+        urlExists: diagnostics.hasUrl,
+        anonKeyExists: diagnostics.hasKey,
+        origin,
         mode,
       });
+
+      if (!diagnostics.isConfigured) {
+        console.error("[Supabase Auth] Cliente Supabase não está configurado", {
+          ...diagnostics,
+          origin,
+          mode,
+        });
+        setMessage(CONNECTION_ERROR_MESSAGE);
+        return;
+      }
 
       const result =
         mode === "login"
@@ -102,10 +170,15 @@ export function AuthPanel() {
         const errorInfo = getErrorInfo(result.error);
         console.error("[Supabase Auth] Erro retornado pela API", {
           ...diagnostics,
+          urlExists: diagnostics.hasUrl,
+          anonKeyExists: diagnostics.hasKey,
+          origin,
           mode,
           errorName: errorInfo.name,
           errorMessage: errorInfo.message,
+          errorStatus: errorInfo.status,
           data: result.data,
+          rawError: result.error,
         });
 
         if (isFetchConnectionError(result.error)) {
@@ -113,7 +186,7 @@ export function AuthPanel() {
           return;
         }
 
-        setMessage(result.error.message);
+        setMessage(result.error?.message || CONNECTION_ERROR_MESSAGE);
         return;
       }
 
@@ -125,12 +198,17 @@ export function AuthPanel() {
       router.push("/dashboard");
     } catch (error) {
       const diagnostics = getSupabaseAuthDiagnostics();
+      const origin = window.location.origin;
       const errorInfo = getErrorInfo(error);
       console.error("[Supabase Auth] Falha de conexao ou fetch", {
         ...diagnostics,
+        urlExists: diagnostics.hasUrl,
+        anonKeyExists: diagnostics.hasKey,
+        origin,
         mode,
         errorName: errorInfo.name,
         errorMessage: errorInfo.message,
+        errorStatus: errorInfo.status,
         sessionCheck: await supabase.auth.getSession().catch((sessionError) => ({
           errorName: getErrorInfo(sessionError).name,
           errorMessage: getErrorInfo(sessionError).message,
@@ -144,39 +222,39 @@ export function AuthPanel() {
 
   return (
     <form onSubmit={submit} className="grid gap-4">
-      <label className="grid gap-2 text-sm font-medium text-slate-700">
-        E-mail
-        <input
-          name="email"
-          type="email"
-          required
-          className="h-11 rounded-md border border-slate-300 px-3 text-slate-950 outline-none focus:border-emerald-600"
-        />
-      </label>
-      <label className="grid gap-2 text-sm font-medium text-slate-700">
-        Senha
-        <input
-          name="password"
-          type="password"
-          minLength={6}
-          required
-          className="h-11 rounded-md border border-slate-300 px-3 text-slate-950 outline-none focus:border-emerald-600"
-        />
-      </label>
-      <button
-        disabled={loading}
-        className="h-11 rounded-md bg-emerald-700 px-4 font-semibold text-white transition hover:bg-emerald-800 disabled:opacity-60"
-      >
-        {loading ? "Aguarde..." : mode === "login" ? "Entrar" : "Criar conta"}
-      </button>
-      <button
+      <PremiumInput
+        label="E-mail"
+        name="email"
+        type="email"
+        required
+        autoComplete="email"
+        placeholder="voce@barbearia.com"
+      />
+      <PremiumInput
+        label="Senha"
+        name="password"
+        type="password"
+        minLength={6}
+        required
+        autoComplete={mode === "login" ? "current-password" : "new-password"}
+        placeholder="Minimo de 6 caracteres"
+      />
+      <PremiumButton disabled={loading} className="mt-2 w-full">
+        {loading ? "Aguarde..." : mode === "login" ? "ENTRAR" : "CRIAR CONTA"}
+      </PremiumButton>
+      <PremiumButton
         type="button"
+        variant="ghost"
         onClick={() => setMode(mode === "login" ? "signup" : "login")}
-        className="text-sm font-medium text-emerald-800"
+        className="w-full"
       >
-        {mode === "login" ? "Criar uma conta" : "Ja tenho conta"}
-      </button>
-      {message ? <p className="text-sm text-red-700">{message}</p> : null}
+        {mode === "login" ? "CRIAR UMA CONTA" : "JA TENHO CONTA"}
+      </PremiumButton>
+      {message ? (
+        <p className="rounded-[var(--premium-radius-md)] border border-red-400/25 bg-red-500/10 px-4 py-3 text-sm leading-6 text-red-100">
+          {message}
+        </p>
+      ) : null}
     </form>
   );
 }

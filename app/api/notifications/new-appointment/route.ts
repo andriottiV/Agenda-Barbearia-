@@ -40,9 +40,9 @@ function emailTemplate({
   const rows = [
     ["Cliente", customerName],
     ["Telefone", customerPhone],
-    ["Serviço", serviceName],
+    ["Servico", serviceName],
     ["Data", appointmentDate],
-    ["Horário", appointmentTime],
+    ["Horario", appointmentTime],
   ];
 
   return `
@@ -90,14 +90,14 @@ function emailTemplate({
 }
 
 export async function POST(request: Request) {
-  const { apiKey, notificationEmail, diagnostics } = getResendConfig();
+  const { apiKey, notificationEmail, fromEmail, diagnostics } = getResendConfig();
 
   console.log("[Notifications] Configuracao Resend", diagnostics);
 
   if (!apiKey || !notificationEmail) {
     console.error("[Notifications] Resend env ausente", diagnostics);
     return Response.json(
-      { error: "Notifications are not configured." },
+      { error: "Notifications are not configured.", diagnostics },
       { status: 500 },
     );
   }
@@ -141,6 +141,7 @@ export async function POST(request: Request) {
   const resend = createResendClient(apiKey);
   console.log("[Notifications] email destino", notificationEmail);
   console.log("[Notifications] Enviando e-mail", {
+    from: fromEmail,
     to: notificationEmail,
     subject: "Novo agendamento na agenda da barbearia",
     customerName,
@@ -150,7 +151,7 @@ export async function POST(request: Request) {
   });
 
   const resendResponse = await resend.emails.send({
-    from: "Agenda Barbearia <onboarding@resend.dev>",
+    from: fromEmail,
     to: notificationEmail,
     subject: "Novo agendamento na agenda da barbearia",
     html: emailTemplate({
@@ -166,9 +167,9 @@ export async function POST(request: Request) {
       "",
       `Cliente: ${customerName}`,
       `Telefone: ${customerPhone}`,
-      `Serviço: ${serviceName}`,
+      `Servico: ${serviceName}`,
       `Data: ${appointmentDate}`,
-      `Horário: ${appointmentTime}`,
+      `Horario: ${appointmentTime}`,
       "",
       "Acesse o painel para acompanhar.",
     ].join("\n"),
@@ -176,15 +177,19 @@ export async function POST(request: Request) {
 
   console.log("[Notifications] Resposta completa do Resend", resendResponse);
 
-  const { error } = resendResponse;
-
-  if (error) {
+  if (resendResponse.error) {
     console.error("[Notifications] Erro completo ao enviar e-mail", {
-      error,
+      error: resendResponse.error,
       response: resendResponse,
       diagnostics,
     });
-    return Response.json({ error: "Could not send notification." }, { status: 502 });
+    return Response.json(
+      {
+        error: "Could not send notification.",
+        resend: resendResponse,
+      },
+      { status: 502 },
+    );
   }
 
   return Response.json({ ok: true, resend: resendResponse });

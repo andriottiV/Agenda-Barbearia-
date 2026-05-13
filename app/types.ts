@@ -26,6 +26,9 @@ export type BusinessHour = {
   opens_at: string;
   closes_at: string;
   active: boolean;
+  lunch_enabled?: boolean | null;
+  lunch_starts_at?: string | null;
+  lunch_ends_at?: string | null;
   created_at?: string;
 };
 
@@ -34,6 +37,9 @@ export type Client = {
   barbershop_id: string;
   name: string;
   phone: string;
+  notes?: string | null;
+  preferred_frequency_days?: number | null;
+  deleted_at?: string | null;
   created_at?: string;
 };
 

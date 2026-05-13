@@ -38,12 +38,20 @@ export function makeSlots(
   closesAt: string,
   durationMinutes: number,
   occupiedStarts: string[],
+  lunchBreak?: {
+    enabled?: boolean | null;
+    startsAt?: string | null;
+    endsAt?: string | null;
+  },
 ) {
   const slots: string[] = [];
   let cursor = opensAt.slice(0, 5);
 
   while (addMinutes(cursor, durationMinutes) <= closesAt.slice(0, 5)) {
-    if (!occupiedStarts.includes(cursor)) {
+    if (
+      !occupiedStarts.includes(cursor) &&
+      !overlapsLunchBreak(cursor, durationMinutes, lunchBreak)
+    ) {
       slots.push(cursor);
     }
     cursor = addMinutes(cursor, 30);
@@ -52,7 +60,60 @@ export function makeSlots(
   return slots;
 }
 
+export function minutesFromTime(time: string) {
+  const [hours, minutes] = time.slice(0, 5).split(":").map(Number);
+  return hours * 60 + minutes;
+}
+
+export function overlapsLunchBreak(
+  startTime: string,
+  durationMinutes: number,
+  lunchBreak?: {
+    enabled?: boolean | null;
+    startsAt?: string | null;
+    endsAt?: string | null;
+  },
+) {
+  if (!lunchBreak?.enabled || !lunchBreak.startsAt || !lunchBreak.endsAt) {
+    return false;
+  }
+
+  const start = minutesFromTime(startTime);
+  const end = start + durationMinutes;
+  const lunchStart = minutesFromTime(lunchBreak.startsAt);
+  const lunchEnd = minutesFromTime(lunchBreak.endsAt);
+
+  return start < lunchEnd && end > lunchStart;
+}
+
 export function whatsappLink(phone: string, message: string) {
   const cleanPhone = phone.replace(/\D/g, "");
   return `https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`;
+}
+
+export function formatPhoneBR(phone?: string | null) {
+  const digits = String(phone ?? "").replace(/\D/g, "");
+
+  if (!digits) {
+    return "Sem telefone";
+  }
+
+  const nationalNumber =
+    digits.length > 11 && digits.startsWith("55") ? digits.slice(2) : digits;
+
+  if (nationalNumber.length === 11) {
+    return `(${nationalNumber.slice(0, 2)}) ${nationalNumber.slice(
+      2,
+      7,
+    )}-${nationalNumber.slice(7)}`;
+  }
+
+  if (nationalNumber.length === 10) {
+    return `(${nationalNumber.slice(0, 2)}) ${nationalNumber.slice(
+      2,
+      6,
+    )}-${nationalNumber.slice(6)}`;
+  }
+
+  return phone?.trim() || "Sem telefone";
 }

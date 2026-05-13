@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "../styles/design-system.css";
 
 :root {
   --background: #fafaf9;
@@ -8,13 +9,14 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--font-inter);
+  --font-mono: var(--font-inter);
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
+  font-family: var(--premium-font-body);
 }
 
 button,
@@ -26,32 +28,43 @@ textarea {
 }
 
 .field {
-  height: 2.75rem;
+  min-height: 3.1rem;
   width: 100%;
-  border-radius: 0.375rem;
-  border: 1px solid #cbd5e1;
-  background: #fff;
-  padding: 0 0.75rem;
-  color: #0f172a;
+  border-radius: 0.95rem;
+  border: 1px solid var(--premium-border-control);
+  background: var(--premium-control-bg);
+  padding: 0 1rem;
+  color: var(--premium-text-100);
   outline: none;
 }
 
 .field:focus {
-  border-color: #047857;
-  box-shadow: 0 0 0 3px rgb(4 120 87 / 0.12);
+  border-color: var(--premium-gold-300);
+  box-shadow: 0 0 0 3px rgba(214, 176, 122, 0.14);
+}
+
+.field::placeholder {
+  color: var(--premium-text-500);
+}
+
+.field option {
+  background: var(--premium-bg-900);
+  color: var(--premium-text-100);
 }
 
 .primary-button {
-  border-radius: 0.375rem;
-  background: #047857;
+  min-height: 3rem;
+  border-radius: var(--premium-radius-md);
+  background: linear-gradient(135deg, var(--premium-gold-300), var(--premium-gold-500));
   padding: 0.75rem 1rem;
   font-weight: 700;
-  color: #fff;
-  transition: background-color 150ms ease;
+  color: #080808;
+  box-shadow: 0 18px 48px rgba(214, 176, 122, 0.2);
+  transition: filter 150ms ease;
 }
 
 .primary-button:hover {
-  background: #065f46;
+  filter: brightness(1.08);
 }
 
 .primary-button:disabled {
@@ -60,11 +73,118 @@ textarea {
 }
 
 .small-button {
-  border-radius: 0.375rem;
-  border: 1px solid #cbd5e1;
-  background: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--premium-radius-md);
+  border: 1px solid var(--premium-border-soft);
+  background: rgba(255, 255, 255, 0.035);
   padding: 0.5rem 0.75rem;
   font-size: 0.875rem;
   font-weight: 700;
-  color: #334155;
+  color: var(--premium-text-300);
+}
+
+.small-button:hover {
+  border-color: var(--premium-border-strong);
+  color: var(--premium-text-100);
+}
+
+.hora-admin .field {
+  min-height: 2.9rem;
+  border-color: var(--premium-border-soft);
+  border-radius: var(--premium-radius-md);
+  background: var(--premium-control-bg);
+  color: var(--premium-text-100);
+}
+
+.hora-admin .field::placeholder {
+  color: var(--premium-text-500);
+}
+
+.hora-admin .field:focus {
+  border-color: var(--premium-gold-300);
+  box-shadow: 0 0 0 3px rgba(214, 176, 122, 0.14);
+}
+
+.hora-admin .field option {
+  background: #101010;
+  color: var(--premium-text-100);
+}
+
+.hora-admin .primary-button {
+  min-height: 3rem;
+  border-radius: var(--premium-radius-md);
+  background: linear-gradient(135deg, var(--premium-gold-300), var(--premium-gold-500));
+  color: #080808;
+  box-shadow: 0 18px 48px rgba(214, 176, 122, 0.2);
+}
+
+.hora-admin .small-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-color: var(--premium-border-soft);
+  border-radius: var(--premium-radius-md);
+  background: rgba(255, 255, 255, 0.035);
+  color: var(--premium-text-300);
+}
+
+.hora-admin .small-button:hover {
+  border-color: var(--premium-border-strong);
+  color: var(--premium-text-100);
+}
+
+.hora-admin .bg-white,
+.hora-admin .bg-slate-50,
+.hora-admin .bg-amber-50,
+.hora-admin .bg-emerald-50,
+.hora-admin .bg-red-50,
+.hora-admin .bg-sky-50,
+.hora-admin .bg-slate-100 {
+  background-color: rgba(255, 255, 255, 0.045);
+}
+
+.hora-admin .border-slate-200,
+.hora-admin .border-slate-300,
+.hora-admin .border-amber-200,
+.hora-admin .border-emerald-200,
+.hora-admin .border-red-200,
+.hora-admin .border-sky-100,
+.hora-admin .border-emerald-100,
+.hora-admin .border-amber-100,
+.hora-admin .border-red-100 {
+  border-color: var(--premium-border-soft);
+}
+
+.hora-admin .text-slate-950,
+.hora-admin .text-slate-800,
+.hora-admin .text-amber-950,
+.hora-admin .text-emerald-900,
+.hora-admin .text-sky-800,
+.hora-admin .text-emerald-800,
+.hora-admin .text-amber-800,
+.hora-admin .text-red-800,
+.hora-admin .text-red-700 {
+  color: var(--premium-text-100);
+}
+
+.hora-admin .text-slate-700,
+.hora-admin .text-slate-600,
+.hora-admin .text-slate-500,
+.hora-admin .text-amber-800 {
+  color: var(--premium-text-300);
+}
+
+.hora-admin label {
+  color: var(--premium-text-300);
+}
+
+.hora-admin strong,
+.hora-admin .font-bold {
+  color: var(--premium-text-100);
+}
+
+.hora-admin article {
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.18);
 }
