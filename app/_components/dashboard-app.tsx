@@ -27,6 +27,7 @@ import type {
   Barbershop,
   BusinessHour,
   Client,
+  Notification as AppNotification,
   Service,
 } from "../types";
 
@@ -55,6 +56,8 @@ const DASHBOARD_QUERIES = {
     "appointments.select(id, barbershop_id, client_id, service_id, appointment_date, appointment_time, status, notes, created_at, clients(name, phone), services(name, price, duration_minutes)).eq(barbershop_id).eq(appointment_date).order(appointment_time)",
   history:
     "appointments.select(id, barbershop_id, client_id, service_id, appointment_date, appointment_time, status, notes, created_at, clients(name, phone), services(name, price, duration_minutes)).eq(barbershop_id).order(appointment_date desc, appointment_time desc)",
+  notifications:
+    "notifications.select(id, user_id, appointment_id, type, title, message, read, created_at).eq(user_id).order(created_at desc).limit(10)",
 } as const;
 
 type ClientFrequencyStatus = "Novo" | "Recorrente" | "Em risco" | "Sumido";
@@ -95,6 +98,15 @@ function normalizeAppointments(rows: unknown[] | null | undefined) {
   return (rows ?? []).map((row) => normalizeAppointmentRow(row));
 }
 
+function formatNotificationTime(value: string) {
+  return new Intl.DateTimeFormat("pt-BR", {
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    month: "2-digit",
+  }).format(new Date(value));
+}
+
 export function DashboardApp() {
   const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
@@ -121,8 +133,11 @@ export function DashboardApp() {
   const [expandedSummary, setExpandedSummary] = useState(false);
   const [draggedServiceId, setDraggedServiceId] = useState<string | null>(null);
   const [serviceSavingId, setServiceSavingId] = useState<string | null>(null);
+  const [notifications, setNotifications] = useState<AppNotification[]>([]);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
 
   const publicPath = barbershop ? `/agendar/${barbershop.slug}` : "";
+  const unreadNotifications = notifications.filter((item) => !item.read).length;
 
   function slugify(value: string) {
     return value
@@ -271,7 +286,54 @@ export function DashboardApp() {
     setClients((clientsRes.data ?? []) as Client[]);
     setAppointments(normalizeAppointments(appointmentsRes.data ?? []));
     setClientAppointments(normalizeAppointments(historyRes.data ?? []));
+    await loadNotifications(currentUser.id);
     setLoading(false);
+  }
+
+  async function loadNotifications(userId = user?.id) {
+    if (!userId) return;
+    console.log("[Dashboard Notifications] user", userId);
+
+    const { data, error } = await supabase
+      .from("notifications")
+      .select("id, user_id, appointment_id, type, title, message, read, created_at")
+      .eq("user_id", userId)
+      .order("created_at", { ascending: false })
+      .limit(10);
+
+    console.log("[Dashboard Notifications] notifications", data, error);
+
+    if (error) {
+      logSupabaseError("[Dashboard] Erro ao carregar notificacoes", error, {
+        table: "notifications",
+        query: DASHBOARD_QUERIES.notifications,
+        filter: { user_id: userId },
+      });
+      return;
+    }
+
+    setNotifications((data ?? []) as AppNotification[]);
+  }
+
+  async function markNotificationAsRead(notificationId: string) {
+    const { error } = await supabase
+      .from("notifications")
+      .update({ read: true })
+      .eq("id", notificationId);
+
+    if (error) {
+      logSupabaseError("[Dashboard] Erro ao marcar notificacao como lida", error, {
+        notificationId,
+      });
+      setNotice(friendlySupabaseError(error));
+      return;
+    }
+
+    setNotifications((current) =>
+      current.map((item) =>
+        item.id === notificationId ? { ...item, read: true } : item,
+      ),
+    );
   }
 
   async function loadServices(barbershopId: string) {
@@ -336,6 +398,17 @@ export function DashboardApp() {
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router]);
+
+  useEffect(() => {
+    if (!user) return;
+
+    const interval = window.setInterval(() => {
+      loadNotifications(user.id);
+    }, 30000);
+
+    return () => window.clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user]);
 
   const dailySummary = useMemo(() => {
     const valid = appointments.filter((item) => item.status !== "cancelled");
@@ -1083,7 +1156,98 @@ export function DashboardApp() {
               {tab === "agenda" ? "Agenda" : nav.find(([key]) => key === tab)?.[1]}
             </h1>
           </div>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setNotificationsOpen((current) => !current)}
+                className="relative inline-flex h-12 w-12 items-center justify-center rounded-[var(--premium-radius-md)] border border-[var(--premium-border-soft)] bg-black/25 text-[var(--premium-gold-300)] transition hover:border-[var(--premium-border-strong)]"
+                aria-label="Notificacoes"
+              >
+                <svg
+                  aria-hidden="true"
+                  className="h-5 w-5"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M15 17h5l-1.4-1.4A2 2 0 0 1 18 14.2V11a6 6 0 1 0-12 0v3.2a2 2 0 0 1-.6 1.4L4 17h5m6 0a3 3 0 0 1-6 0m6 0H9"
+                  />
+                </svg>
+                {unreadNotifications ? (
+                  <span className="absolute -right-1 -top-1 grid h-5 min-w-5 place-items-center rounded-full bg-[var(--premium-gold-400)] px-1 text-[0.68rem] font-black text-black">
+                    {unreadNotifications}
+                  </span>
+                ) : null}
+              </button>
+
+              {notificationsOpen ? (
+                <div className="absolute right-0 z-50 mt-3 w-[min(22rem,calc(100vw-2rem))] rounded-[var(--premium-radius-lg)] border border-[var(--premium-border-soft)] bg-[var(--premium-bg-glass-strong)] p-3 shadow-[var(--premium-shadow-card)] backdrop-blur-xl">
+                  <div className="flex items-center justify-between gap-3 border-b border-white/10 px-2 pb-3">
+                    <div>
+                      <p className="text-sm font-bold text-[var(--premium-text-100)]">
+                        Notificacoes
+                      </p>
+                      <p className="text-xs text-[var(--premium-text-500)]">
+                        Ultimos avisos do HoraAi
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => loadNotifications()}
+                      className="rounded-[var(--premium-radius-sm)] border border-[var(--premium-border-soft)] px-3 py-2 text-xs font-bold text-[var(--premium-gold-300)]"
+                    >
+                      Atualizar
+                    </button>
+                  </div>
+
+                  <div className="mt-3 grid max-h-96 gap-2 overflow-y-auto">
+                    {notifications.length ? (
+                      notifications.map((notification) => (
+                        <button
+                          key={notification.id}
+                          type="button"
+                          onClick={() => markNotificationAsRead(notification.id)}
+                          className={`rounded-[var(--premium-radius-md)] border p-3 text-left transition ${
+                            notification.read
+                              ? "border-white/10 bg-white/[0.03]"
+                              : "border-[var(--premium-border-strong)] bg-[rgba(214,176,122,0.1)]"
+                          }`}
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <p className="text-sm font-bold text-[var(--premium-text-100)]">
+                              {notification.title}
+                            </p>
+                            {!notification.read ? (
+                              <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-[var(--premium-gold-400)]" />
+                            ) : null}
+                          </div>
+                          <p className="mt-1 text-xs leading-5 text-[var(--premium-text-300)]">
+                            {notification.message}
+                          </p>
+                          <p className="mt-2 text-[0.68rem] font-bold uppercase tracking-[0.12em] text-[var(--premium-text-500)]">
+                            {formatNotificationTime(notification.created_at)}
+                          </p>
+                        </button>
+                      ))
+                    ) : (
+                      <div className="rounded-[var(--premium-radius-md)] border border-dashed border-[var(--premium-border-soft)] p-5 text-center">
+                        <p className="text-sm font-bold text-[var(--premium-text-100)]">
+                          Nenhuma notificacao ainda.
+                        </p>
+                        <p className="mt-1 text-xs text-[var(--premium-text-500)]">
+                          Novos agendamentos aparecerao aqui.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ) : null}
+            </div>
             {barbershop ? (
               <>
                 <button

@@ -56,3 +56,14 @@ export type Appointment = {
   clients?: Pick<Client, "name" | "phone"> | null;
   services?: Pick<Service, "name" | "price" | "duration_minutes"> | null;
 };
+
+export type Notification = {
+  id: string;
+  user_id: string | null;
+  appointment_id: string | null;
+  type: "new_appointment" | string;
+  title: string;
+  message: string;
+  read: boolean;
+  created_at: string;
+};

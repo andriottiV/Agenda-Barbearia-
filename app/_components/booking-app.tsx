@@ -551,6 +551,8 @@ export function BookingApp({ slug }: { slug: string }) {
       }
 
       const confirmedSlot = startTime;
+      const appointmentId =
+        typeof appointmentRes.data === "string" ? appointmentRes.data : "";
       setSuccess({
         customerName: trimmedName,
         serviceName: service.name,
@@ -564,11 +566,17 @@ export function BookingApp({ slug }: { slug: string }) {
       setStartTime("");
       await reloadAppointments(barbershop.id, date);
       notifyNewAppointment({
+        barbershopId: barbershop.id,
+        barbershopSlug: barbershop.slug,
+        appointmentId,
         customerName: trimmedName,
         customerPhone: trimmedPhone,
         serviceName: service.name,
+        servicePrice: Number(service.price),
+        serviceDurationMinutes: service.duration_minutes,
         appointmentDate: date,
         appointmentTime: confirmedSlot,
+        notes: trimmedNotes,
         barbershopName: barbershop.name,
       });
     } finally {
@@ -577,28 +585,36 @@ export function BookingApp({ slug }: { slug: string }) {
   }
 
   async function notifyNewAppointment(payload: {
+    barbershopId: string;
+    barbershopSlug: string;
+    appointmentId: string;
     customerName: string;
     customerPhone: string;
     serviceName: string;
+    servicePrice: number;
+    serviceDurationMinutes: number;
     appointmentDate: string;
     appointmentTime: string;
+    notes: string;
     barbershopName: string;
   }) {
     try {
-      const response = await fetch("/api/notifications/new-appointment", {
+      console.log("[Notifications] Enviando notificação", payload);
+      const response = await fetch("/api/notifications", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
+      console.log("[Notifications] Resposta", response.status);
 
       if (!response.ok) {
-        console.error("[Notifications] Falha ao enviar e-mail", {
+        console.error("[Notifications] Falha ao processar notificacao", {
           status: response.status,
           body: await response.text(),
         });
       }
     } catch (error) {
-      console.error("[Notifications] Falha ao chamar API de e-mail", error);
+      console.error("[Notifications] Falha ao chamar API de notificacao", error);
     }
   }
 

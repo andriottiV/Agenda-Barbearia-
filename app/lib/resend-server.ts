@@ -5,7 +5,7 @@ export function getResendConfig() {
   const notificationEmail = process.env.NOTIFICATION_EMAIL?.trim();
   const fromEmail =
     process.env.RESEND_FROM_EMAIL?.trim() ??
-    "Agenda Barber <onboarding@resend.dev>";
+    "HoraAi <onboarding@resend.dev>";
 
   return {
     apiKey,

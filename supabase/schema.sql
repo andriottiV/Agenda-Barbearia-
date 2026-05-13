@@ -101,6 +101,24 @@ create table if not exists public.business_settings (
 create unique index if not exists business_settings_barbershop_id_idx
 on public.business_settings (barbershop_id);
 
+create table if not exists public.notifications (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid references auth.users(id) on delete cascade,
+  appointment_id uuid references public.appointments(id) on delete set null,
+  type text not null default 'new_appointment',
+  title text not null,
+  message text not null,
+  read boolean not null default false,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists notifications_user_created_at_idx
+on public.notifications (user_id, created_at desc);
+
+create index if not exists notifications_user_unread_idx
+on public.notifications (user_id, read)
+where read = false;
+
 alter table public.business_hours
 add column if not exists lunch_starts_at time;
 
@@ -144,6 +162,7 @@ alter table public.clients enable row level security;
 alter table public.appointments enable row level security;
 alter table public.business_hours enable row level security;
 alter table public.business_settings enable row level security;
+alter table public.notifications enable row level security;
 
 drop policy if exists "barbershops public read" on public.barbershops;
 create policy "barbershops public read"
@@ -320,6 +339,17 @@ using (
     and barbershops.owner_id = auth.uid()
   )
 );
+
+drop policy if exists "notifications owner read" on public.notifications;
+create policy "notifications owner read"
+on public.notifications for select
+using (auth.uid() = user_id);
+
+drop policy if exists "notifications owner update" on public.notifications;
+create policy "notifications owner update"
+on public.notifications for update
+using (auth.uid() = user_id)
+with check (auth.uid() = user_id);
 
 drop policy if exists "clients owner read" on public.clients;
 create policy "clients owner read"
@@ -522,6 +552,50 @@ exception
 end;
 $$;
 
+create or replace function public.create_new_appointment_notification(
+  p_barbershop_id uuid,
+  p_appointment_id uuid,
+  p_title text,
+  p_message text
+)
+returns uuid
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_user_id uuid;
+  v_notification_id uuid;
+begin
+  select owner_id
+  into v_user_id
+  from public.barbershops
+  where id = p_barbershop_id;
+
+  if v_user_id is null then
+    raise exception 'Barbearia nao encontrada para notificacao.';
+  end if;
+
+  insert into public.notifications (
+    user_id,
+    appointment_id,
+    type,
+    title,
+    message
+  )
+  values (
+    v_user_id,
+    p_appointment_id,
+    'new_appointment',
+    coalesce(nullif(trim(coalesce(p_title, '')), ''), 'Novo agendamento recebido'),
+    coalesce(nullif(trim(coalesce(p_message, '')), ''), 'Um novo agendamento foi confirmado.')
+  )
+  returning id into v_notification_id;
+
+  return v_notification_id;
+end;
+$$;
+
 grant usage on schema public to anon, authenticated;
 grant select on public.barbershops to anon, authenticated;
 grant select on public.services to anon, authenticated;
@@ -531,10 +605,12 @@ grant insert on public.clients to anon;
 grant insert on public.appointments to anon;
 grant select, insert, update on public.clients to authenticated;
 grant select, insert, update on public.appointments to authenticated;
+grant select, update on public.notifications to authenticated;
 grant insert, update, delete on public.barbershops to authenticated;
 grant insert, update, delete on public.services to authenticated;
 grant insert, update, delete on public.business_hours to authenticated;
 grant select, insert, update, delete on public.business_settings to authenticated;
 grant execute on function public.create_public_appointment(uuid, uuid, date, time, text, text, text) to anon, authenticated;
+grant execute on function public.create_new_appointment_notification(uuid, uuid, text, text) to anon, authenticated;
 
 notify pgrst, 'reload schema';
