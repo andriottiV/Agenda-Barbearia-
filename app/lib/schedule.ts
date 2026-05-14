@@ -24,7 +24,11 @@ export function toMoney(value: FormDataEntryValue | null) {
 }
 
 export function todayIso() {
-  return new Date().toISOString().slice(0, 10);
+  const today = new Date();
+  const year = today.getFullYear();
+  const month = String(today.getMonth() + 1).padStart(2, "0");
+  const day = String(today.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 export function addMinutes(time: string, minutes: number) {
@@ -43,6 +47,7 @@ export function makeSlots(
     startsAt?: string | null;
     endsAt?: string | null;
   },
+  occupiedRanges: Array<{ startTime: string; durationMinutes: number }> = [],
 ) {
   const slots: string[] = [];
   let cursor = opensAt.slice(0, 5);
@@ -50,6 +55,14 @@ export function makeSlots(
   while (addMinutes(cursor, durationMinutes) <= closesAt.slice(0, 5)) {
     if (
       !occupiedStarts.includes(cursor) &&
+      !occupiedRanges.some((range) =>
+        overlapsTimeRange(
+          cursor,
+          durationMinutes,
+          range.startTime,
+          range.durationMinutes,
+        ),
+      ) &&
       !overlapsLunchBreak(cursor, durationMinutes, lunchBreak)
     ) {
       slots.push(cursor);
@@ -86,8 +99,45 @@ export function overlapsLunchBreak(
   return start < lunchEnd && end > lunchStart;
 }
 
+export function overlapsTimeRange(
+  startTime: string,
+  durationMinutes: number,
+  otherStartTime: string,
+  otherDurationMinutes: number,
+) {
+  const start = minutesFromTime(startTime);
+  const end = start + durationMinutes;
+  const otherStart = minutesFromTime(otherStartTime);
+  const otherEnd = otherStart + otherDurationMinutes;
+
+  return start < otherEnd && end > otherStart;
+}
+
+export function isInsideBusinessHours(
+  startTime: string,
+  durationMinutes: number,
+  opensAt?: string | null,
+  closesAt?: string | null,
+) {
+  if (!opensAt || !closesAt) return false;
+
+  const start = minutesFromTime(startTime);
+  const end = start + durationMinutes;
+  return start >= minutesFromTime(opensAt) && end <= minutesFromTime(closesAt);
+}
+
+export function normalizeBrazilPhone(phone: string) {
+  const digits = phone.replace(/\D/g, "");
+
+  if (digits.length === 10 || digits.length === 11) {
+    return `55${digits}`;
+  }
+
+  return digits;
+}
+
 export function whatsappLink(phone: string, message: string) {
-  const cleanPhone = phone.replace(/\D/g, "");
+  const cleanPhone = normalizeBrazilPhone(phone);
   return `https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`;
 }
 

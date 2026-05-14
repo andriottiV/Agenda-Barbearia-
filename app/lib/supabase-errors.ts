@@ -22,6 +22,14 @@ export function friendlySupabaseError(error: SupabaseLikeError | null | undefine
   }
 
   if (
+    error.code === "23505" ||
+    normalizedText.includes("unique") ||
+    normalizedText.includes("duplicate")
+  ) {
+    return "Este horario acabou de ser ocupado. Escolha outro horario.";
+  }
+
+  if (
     error.code === "PGRST205" ||
     normalizedText.includes("schema cache") ||
     normalizedText.includes("could not find the table") ||

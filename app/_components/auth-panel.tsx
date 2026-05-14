@@ -8,7 +8,7 @@ import { getSupabaseAuthDiagnostics, supabase } from "../lib/supabase";
 type AuthMode = "login" | "signup";
 
 const CONNECTION_ERROR_MESSAGE =
-  "Não foi possível conectar ao Supabase. Verifique as variáveis de ambiente.";
+  "Nao foi possivel conectar ao Supabase. Verifique as variaveis de ambiente.";
 
 function getErrorInfo(error: unknown) {
   if (error instanceof Error) {
@@ -78,13 +78,6 @@ export function AuthPanel({
     async function checkSupabaseConnection() {
       const diagnostics = getSupabaseAuthDiagnostics();
       const origin = window.location.origin;
-      console.info("[Supabase Auth] Diagnostico inicial", {
-        ...diagnostics,
-        urlExists: diagnostics.hasUrl,
-        anonKeyExists: diagnostics.hasKey,
-        origin,
-      });
-
       if (!diagnostics.hasUrl || !diagnostics.hasKey) {
         console.error("[Supabase Auth] Variáveis de ambiente Supabase ausentes", {
           ...diagnostics,
@@ -142,14 +135,6 @@ export function AuthPanel({
       const form = new FormData(event.currentTarget);
       const email = String(form.get("email")).trim();
       const password = String(form.get("password"));
-
-      console.info("[Supabase Auth] Iniciando autenticacao", {
-        ...diagnostics,
-        urlExists: diagnostics.hasUrl,
-        anonKeyExists: diagnostics.hasKey,
-        origin,
-        mode,
-      });
 
       if (!diagnostics.isConfigured) {
         console.error("[Supabase Auth] Cliente Supabase não está configurado", {

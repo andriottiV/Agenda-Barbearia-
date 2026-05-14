@@ -5,9 +5,6 @@ export async function GET() {
   const notificationEmail = process.env.NOTIFICATION_EMAIL?.trim();
   const hasResendKey = Boolean(apiKey);
 
-  console.log("[Email Test] RESEND_API_KEY exists", hasResendKey);
-  console.log("[Email Test] NOTIFICATION_EMAIL", notificationEmail);
-
   if (!apiKey || !notificationEmail) {
     return Response.json(
       {
@@ -27,7 +24,6 @@ export async function GET() {
 
   try {
     const resend = createResendClient(apiKey);
-    console.log("[Email Test] Tentando enviar email via Resend");
 
     const { data, error } = await resend.emails.send({
       from: "HoraAi <onboarding@resend.dev>",
@@ -36,8 +32,9 @@ export async function GET() {
       html: "<strong>Se você recebeu isso, o Resend está funcionando.</strong>",
     });
 
-    console.log("[Email Test] Resend data", data);
-    console.error("[Email Test] Resend error", error);
+    if (error) {
+      console.error("[Email Test] Resend error", error);
+    }
 
     return Response.json(
       {

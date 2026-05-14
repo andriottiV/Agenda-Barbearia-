@@ -6,8 +6,10 @@ import { supabase } from "../lib/supabase";
 import { friendlySupabaseError } from "../lib/supabase-errors";
 import {
   currency,
+  isInsideBusinessHours,
   makeSlots,
   overlapsLunchBreak,
+  overlapsTimeRange,
   todayIso,
   whatsappLink,
   weekdays,
@@ -20,6 +22,11 @@ type BookedSlot = {
   appointment_date: string;
   appointment_time: string;
   status: "scheduled" | "confirmed" | "done";
+};
+
+type OccupiedRange = {
+  startTime: string;
+  durationMinutes: number;
 };
 
 type SupabaseErrorLike = {
@@ -49,6 +56,11 @@ function normalizeServices(rows: Service[] | null | undefined) {
     ...service,
     display_order: Number(service.display_order ?? index),
   }));
+}
+
+function hasValidPhone(value: string) {
+  const digits = value.replace(/\D/g, "");
+  return digits.length >= 10 && digits.length <= 13;
 }
 
 function formatDateBR(value: string) {
@@ -88,15 +100,15 @@ function StepTitle({
   description?: string;
 }) {
   return (
-    <div className="space-y-1.5">
-      <p className="text-[0.68rem] font-bold uppercase tracking-[0.22em] text-[#D6B07A]/80">
+    <div className="space-y-2">
+      <p className="inline-flex rounded-full border border-[#D6B07A]/24 bg-[#D6B07A]/10 px-3 py-1 text-[0.68rem] font-bold uppercase tracking-[0.18em] text-[#D6B07A]">
         {step}
       </p>
-      <h2 className="text-xl font-semibold text-[#F5F1EB] sm:text-2xl">
+      <h2 className="text-lg font-semibold leading-tight text-[#F5F1EB] sm:text-2xl">
         {title}
       </h2>
       {description ? (
-        <p className="max-w-2xl text-sm leading-6 text-[#B8AEA3] sm:text-base">
+        <p className="max-w-2xl text-sm leading-6 text-[#B8AEA3]">
           {description}
         </p>
       ) : null}
@@ -116,34 +128,28 @@ function BarberInfoPanel({
   const initials = getInitials(barbershop.name) || "HA";
 
   return (
-    <aside className="premium-card relative overflow-hidden p-5 sm:p-7 lg:sticky lg:top-6 lg:min-h-[calc(100vh-3rem)] lg:p-9">
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_20%_8%,rgba(214,176,122,0.2),transparent_28%),linear-gradient(155deg,rgba(255,255,255,0.065),transparent_36%),linear-gradient(180deg,rgba(8,8,8,0.1),rgba(8,8,8,0.74))]" />
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-2/3 opacity-30 [background:repeating-linear-gradient(120deg,rgba(214,176,122,0.18)_0,rgba(214,176,122,0.18)_1px,transparent_1px,transparent_16px)]" />
+    <aside className="relative overflow-hidden rounded-[1.35rem] border border-[#D6B07A]/22 bg-[rgba(12,12,12,0.82)] p-4 shadow-[0_24px_90px_rgba(0,0,0,0.48)] backdrop-blur-xl sm:p-5 lg:sticky lg:top-6 lg:p-7">
+      <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(145deg,rgba(214,176,122,0.16),transparent_32%),linear-gradient(180deg,rgba(255,255,255,0.055),transparent_36%)]" />
 
-      <div className="relative flex min-h-full flex-col justify-between gap-8">
-        <div className="space-y-6">
-          <div className="inline-flex h-16 w-16 items-center justify-center rounded-2xl border border-[#D6B07A]/45 bg-black/45 text-xl font-black tracking-[0.08em] text-[#D6B07A] shadow-[0_18px_50px_rgba(214,176,122,0.14)]">
-            {initials}
+      <div className="relative grid gap-4">
+        <div className="flex items-start gap-3 sm:gap-4">
+          <div className="inline-flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-[#D6B07A]/45 bg-black/45 text-lg font-black tracking-[0.08em] text-[#D6B07A] shadow-[0_18px_50px_rgba(214,176,122,0.14)] sm:h-16 sm:w-16 sm:text-xl">
+              {initials}
           </div>
-
-          <div className="space-y-4">
-            <p className="text-xs font-bold uppercase tracking-[0.3em] text-[#D6B07A]/80">
+          <div className="min-w-0">
+            <p className="text-[0.66rem] font-bold uppercase tracking-[0.2em] text-[#D6B07A]/80">
               Agendamento online
             </p>
-            <h1 className="premium-text-title max-w-xl text-4xl font-semibold leading-[0.98] text-[#F5F1EB] sm:text-5xl lg:text-6xl">
+            <h1 className="premium-text-title mt-1 break-words text-3xl font-semibold leading-none text-[#F5F1EB] sm:text-5xl lg:text-6xl">
               {barbershop.name}
             </h1>
-            <p className="max-w-md text-base leading-7 text-[#CFC6BA] sm:text-lg">
-              Agende seu horario de forma rapida e pratica.
-            </p>
           </div>
         </div>
 
-        <div className="space-y-4 rounded-2xl border border-[#D6B07A]/22 bg-[rgba(12,12,12,0.76)] p-5 shadow-[0_24px_70px_rgba(0,0,0,0.38)] backdrop-blur-xl">
+        <div className="space-y-3 rounded-2xl border border-[#D6B07A]/18 bg-black/35 p-3 shadow-[0_18px_60px_rgba(0,0,0,0.32)] sm:p-4">
           <InfoRow label="Endereco" value={barbershop.address ?? "Endereco nao informado"} />
-          <InfoRow label="Instagram / contato" value={barbershop.phone ?? "Contato nao informado"} />
           <InfoRow
-            label={`Horario - ${weekdays[weekday]}`}
+            label={weekdays[weekday]}
             value={
               dayHours?.active
                 ? `${dayHours.opens_at.slice(0, 5)} as ${dayHours.closes_at.slice(0, 5)}`
@@ -151,7 +157,7 @@ function BarberInfoPanel({
             }
           />
           {dayHours?.active && dayHours.lunch_enabled ? (
-            <p className="rounded-xl border border-[#D6B07A]/20 bg-[#D6B07A]/10 px-4 py-3 text-sm text-[#E0C08D]">
+            <p className="rounded-xl border border-[#D6B07A]/20 bg-[#D6B07A]/10 px-3 py-2 text-sm leading-5 text-[#E0C08D]">
               Pausa: {dayHours.lunch_starts_at?.slice(0, 5)} as{" "}
               {dayHours.lunch_ends_at?.slice(0, 5)}
             </p>
@@ -164,13 +170,17 @@ function BarberInfoPanel({
               )}
               target="_blank"
               rel="noreferrer"
-              className="mt-2 inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[#20B15A] px-5 py-3 text-sm font-bold text-white shadow-[0_18px_45px_rgba(32,177,90,0.24)] transition hover:bg-[#24c463]"
+              className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-[#20B15A] px-4 py-2.5 text-sm font-bold text-white shadow-[0_14px_34px_rgba(32,177,90,0.2)] transition hover:bg-[#24c463]"
             >
               <span className="h-2.5 w-2.5 rounded-full bg-white" />
-              Agendar pelo WhatsApp
+              Falar no WhatsApp
             </a>
           ) : null}
         </div>
+
+        <p className="max-w-md text-sm leading-6 text-[#CFC6BA]">
+          Escolha o servico, reserve um horario livre e confirme em poucos segundos.
+        </p>
       </div>
     </aside>
   );
@@ -178,11 +188,11 @@ function BarberInfoPanel({
 
 function InfoRow({ label, value }: { label: string; value: string }) {
   return (
-    <div className="grid gap-1 border-b border-white/10 pb-4 last:border-b-0 last:pb-0">
+    <div className="grid gap-0.5 border-b border-white/10 pb-3 last:border-b-0 last:pb-0">
       <span className="text-[0.68rem] font-bold uppercase tracking-[0.2em] text-[#D6B07A]/70">
         {label}
       </span>
-      <span className="text-sm leading-6 text-[#F5F1EB]">{value}</span>
+      <span className="text-sm leading-5 text-[#F5F1EB]">{value}</span>
     </div>
   );
 }
@@ -200,7 +210,7 @@ function PublicServiceCard({
     <button
       type="button"
       onClick={onSelect}
-      className={`group min-h-40 rounded-2xl border p-5 text-left shadow-[0_20px_60px_rgba(0,0,0,0.22)] transition duration-200 ${
+      className={`group min-h-32 rounded-2xl border p-4 text-left shadow-[0_20px_60px_rgba(0,0,0,0.18)] transition duration-200 sm:p-5 ${
         selected
           ? "border-[#D6B07A] bg-[rgba(214,176,122,0.12)] text-[#F5F1EB] shadow-[0_22px_70px_rgba(214,176,122,0.18)]"
           : "border-[#D6B07A]/18 bg-[rgba(18,18,18,0.84)] text-[#F5F1EB] hover:-translate-y-0.5 hover:border-[#D6B07A]/50 hover:bg-white/[0.06]"
@@ -216,13 +226,13 @@ function PublicServiceCard({
           </h3>
         </div>
         <span
-          className={`grid h-8 w-8 shrink-0 place-items-center rounded-full border text-sm font-black ${
+          className={`grid h-8 w-8 shrink-0 place-items-center rounded-full border text-[0.62rem] font-black ${
             selected
               ? "border-[#D6B07A] bg-[#D6B07A] text-black"
               : "border-white/15 text-transparent group-hover:border-[#D6B07A]/45"
           }`}
         >
-          ✓
+          OK
         </span>
       </div>
       <div className="mt-5 flex items-end justify-between gap-3">
@@ -260,13 +270,13 @@ function TimeSlotGrid({
   }
 
   return (
-    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4">
+    <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 xl:grid-cols-5">
       {slots.map((slot) => (
         <button
           key={slot}
           type="button"
           onClick={() => onSelect(slot)}
-          className={`min-h-14 rounded-2xl border px-3 py-3 text-base font-bold transition ${
+          className={`min-h-12 rounded-xl border px-3 py-3 text-base font-bold transition ${
             selectedTime === slot
               ? "border-[#D6B07A] bg-[#D6B07A] text-[#080808] shadow-[0_16px_36px_rgba(214,176,122,0.2)]"
               : "border-[#D6B07A]/18 bg-[rgba(12,12,12,0.84)] text-[#F5F1EB] hover:border-[#D6B07A]/50 hover:bg-white/[0.06]"
@@ -291,7 +301,7 @@ function BookingSummary({
   customerName: string;
 }) {
   return (
-    <div className="rounded-2xl border border-[#D6B07A]/25 bg-[rgba(214,176,122,0.08)] p-5">
+    <div className="rounded-2xl border border-[#D6B07A]/25 bg-[rgba(214,176,122,0.08)] p-4 sm:p-5">
       <StepTitle step="Resumo" title="Confira antes de confirmar" />
       <div className="mt-5 grid gap-3 text-sm sm:grid-cols-2">
         <SummaryItem label="Servico" value={service?.name ?? "Escolha um servico"} />
@@ -336,6 +346,7 @@ export function BookingApp({ slug }: { slug: string }) {
   const [customerPhone, setCustomerPhone] = useState("");
   const [notes, setNotes] = useState("");
   const [loading, setLoading] = useState(true);
+  const [slotsLoading, setSlotsLoading] = useState(false);
   const [booking, setBooking] = useState(false);
   const [success, setSuccess] = useState<SuccessDetails>(null);
   const [error, setError] = useState("");
@@ -344,12 +355,20 @@ export function BookingApp({ slug }: { slug: string }) {
   const weekday = new Date(`${date}T12:00:00`).getDay();
   const dayHours = hours.find((item) => item.weekday === weekday);
   const canConfirm = Boolean(
-    service && date && startTime && customerName.trim() && customerPhone.trim(),
+    service &&
+      date &&
+      startTime &&
+      customerName.trim().length >= 2 &&
+      hasValidPhone(customerPhone),
   );
 
   const slots = useMemo(() => {
     if (!service || !dayHours || !dayHours.active) return [];
     const occupiedSlots = bookedSlots.map((item) => item.appointment_time.slice(0, 5));
+    const occupiedRanges: OccupiedRange[] = occupiedSlots.map((startTime) => ({
+      startTime,
+      durationMinutes: service.duration_minutes,
+    }));
 
     return makeSlots(
       dayHours.opens_at,
@@ -361,6 +380,7 @@ export function BookingApp({ slug }: { slug: string }) {
         startsAt: dayHours.lunch_starts_at,
         endsAt: dayHours.lunch_ends_at,
       },
+      occupiedRanges,
     );
   }, [bookedSlots, dayHours, service]);
 
@@ -464,6 +484,7 @@ export function BookingApp({ slug }: { slug: string }) {
   useEffect(() => {
     async function loadAppointments() {
       if (!barbershop) return;
+      setSlotsLoading(true);
 
       const { data, error: slotsError } = await supabase
         .from("booked_slots")
@@ -477,11 +498,13 @@ export function BookingApp({ slug }: { slug: string }) {
           date,
         });
         setError(friendlySupabaseError(slotsError));
+        setSlotsLoading(false);
         return;
       }
 
       setBookedSlots((data ?? []) as BookedSlot[]);
       setStartTime("");
+      setSlotsLoading(false);
     }
 
     loadAppointments();
@@ -489,19 +512,49 @@ export function BookingApp({ slug }: { slug: string }) {
 
   async function book(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!barbershop || !service || !startTime) return;
+    if (!barbershop || !service || !startTime) {
+      setError("Escolha servico, data e horario para confirmar.");
+      return;
+    }
 
     const trimmedName = customerName.trim();
     const trimmedPhone = customerPhone.trim();
     const trimmedNotes = notes.trim();
 
-    if (!trimmedName || !trimmedPhone) {
-      setError("Informe nome e telefone para confirmar o horario.");
+    if (trimmedName.length < 2) {
+      setError("Informe seu nome para confirmar o horario.");
       return;
     }
 
-    const conflict = bookedSlots.some(
-      (item) => item.appointment_time.slice(0, 5) === startTime,
+    if (!hasValidPhone(trimmedPhone)) {
+      setError("Informe um WhatsApp valido com DDD.");
+      return;
+    }
+
+    if (!dayHours?.active) {
+      setError("A barbearia esta fechada nesta data.");
+      return;
+    }
+
+    if (
+      !isInsideBusinessHours(
+        startTime,
+        service.duration_minutes,
+        dayHours.opens_at,
+        dayHours.closes_at,
+      )
+    ) {
+      setError("Este horario fica fora do expediente da barbearia.");
+      return;
+    }
+
+    const conflict = bookedSlots.some((item) =>
+      overlapsTimeRange(
+        startTime,
+        service.duration_minutes,
+        item.appointment_time.slice(0, 5),
+        service.duration_minutes,
+      ),
     );
 
     if (conflict) {
@@ -599,22 +652,16 @@ export function BookingApp({ slug }: { slug: string }) {
     barbershopName: string;
   }) {
     try {
-      console.log("[Notifications] Enviando notificação", payload);
       const response = await fetch("/api/notifications", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-      console.log("[Notifications] Resposta", response.status);
-
       if (!response.ok) {
-        console.error("[Notifications] Falha ao processar notificacao", {
-          status: response.status,
-          body: await response.text(),
-        });
+        await response.text();
       }
     } catch (error) {
-      console.error("[Notifications] Falha ao chamar API de notificacao", error);
+      void error;
     }
   }
 
@@ -667,35 +714,53 @@ export function BookingApp({ slug }: { slug: string }) {
   }
 
   const successWhatsAppMessage = success
-    ? `Ola, sou ${success.customerName}. Acabei de confirmar ${success.serviceName} para ${success.appointmentDate} as ${success.appointmentTime}.`
+    ? [
+        "Olá! Acabei de agendar meu horário pelo HoraAi.",
+        "",
+        `Nome: ${success.customerName}`,
+        `Barbearia: ${barbershop.name}`,
+        `Serviço: ${success.serviceName}`,
+        `Data: ${formatDateBR(success.appointmentDate)}`,
+        `Horário: ${success.appointmentTime}`,
+        "",
+        "Até lá!",
+      ].join("\n")
     : "";
 
   return (
     <main className="relative min-h-screen overflow-x-hidden bg-[#080808] text-[#F5F1EB]">
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_18%_0%,rgba(214,176,122,0.18),transparent_28%),radial-gradient(circle_at_92%_20%,rgba(255,255,255,0.08),transparent_22%),linear-gradient(135deg,#080808_0%,#101010_48%,#161616_100%)]" />
-      <div className="pointer-events-none absolute inset-0 opacity-[0.16] [background:linear-gradient(90deg,rgba(255,255,255,0.08)_1px,transparent_1px),linear-gradient(0deg,rgba(255,255,255,0.06)_1px,transparent_1px)] [background-size:42px_42px]" />
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_18%_0%,rgba(214,176,122,0.14),transparent_26%),linear-gradient(135deg,#080808_0%,#101010_54%,#151515_100%)]" />
+      <div className="pointer-events-none absolute inset-0 opacity-[0.11] [background:linear-gradient(90deg,rgba(255,255,255,0.07)_1px,transparent_1px),linear-gradient(0deg,rgba(255,255,255,0.045)_1px,transparent_1px)] [background-size:44px_44px]" />
 
-      <div className="relative mx-auto grid min-h-screen max-w-7xl gap-5 px-4 py-5 sm:px-6 lg:grid-cols-[0.82fr_1.18fr] lg:px-8 lg:py-6">
+      <div className="relative mx-auto grid min-h-screen max-w-6xl gap-4 px-3 py-3 sm:px-6 sm:py-6 lg:grid-cols-[0.82fr_1.18fr] lg:px-8">
         <BarberInfoPanel
           barbershop={barbershop}
           dayHours={dayHours}
           weekday={weekday}
         />
 
-        <section className="premium-card p-5 sm:p-7 lg:p-8">
+        <section className="rounded-[1.35rem] border border-[#D6B07A]/18 bg-[rgba(14,14,14,0.86)] p-4 shadow-[0_24px_90px_rgba(0,0,0,0.46)] backdrop-blur-xl sm:p-7 lg:p-8">
           {success ? (
-            <div className="flex min-h-full flex-col justify-center gap-5">
-              <div className="rounded-3xl border border-[#D6B07A]/25 bg-black/30 p-6 text-center shadow-[0_26px_80px_rgba(0,0,0,0.28)] sm:p-10">
-                <p className="text-[0.68rem] font-bold uppercase tracking-[0.28em] text-[#D6B07A]/75">
+            <div className="flex min-h-full flex-col justify-center gap-4">
+              <div className="rounded-[1.4rem] border border-[#D6B07A]/25 bg-black/30 p-6 text-center shadow-[0_26px_80px_rgba(0,0,0,0.28)] sm:p-10">
+                <div className="mx-auto grid h-16 w-16 place-items-center rounded-full border border-[#D6B07A]/45 bg-[#D6B07A] text-sm font-black text-[#080808]">
+                  OK
+                </div>
+                <p className="mt-5 text-[0.68rem] font-bold uppercase tracking-[0.24em] text-[#D6B07A]/75">
                   Tudo certo
                 </p>
-                <h2 className="mt-4 text-3xl font-semibold text-[#F5F1EB] sm:text-4xl">
-                  Agendamento confirmado!
+                <h2 className="mt-3 text-3xl font-semibold leading-tight text-[#F5F1EB] sm:text-4xl">
+                  Horario confirmado
                 </h2>
-                <p className="mx-auto mt-4 max-w-md text-sm leading-7 text-[#B8AEA3]">
-                  {success.serviceName} em {formatDateBR(success.appointmentDate)} as{" "}
-                  {success.appointmentTime}. A barbearia ja consegue ver seu horario no painel.
-                </p>
+                <div className="mx-auto mt-5 grid max-w-md gap-3 rounded-2xl border border-white/10 bg-white/[0.04] p-4 text-left">
+                  <SummaryItem label="Barbearia" value={barbershop.name} />
+                  <SummaryItem label="Cliente" value={success.customerName} />
+                  <SummaryItem label="Servico" value={success.serviceName} />
+                  <SummaryItem
+                    label="Data e horario"
+                    value={`${formatDateBR(success.appointmentDate)} as ${success.appointmentTime}`}
+                  />
+                </div>
               </div>
 
               <div className="grid gap-3 sm:grid-cols-2">
@@ -706,9 +771,14 @@ export function BookingApp({ slug }: { slug: string }) {
                     rel="noreferrer"
                     className="inline-flex min-h-14 items-center justify-center rounded-2xl bg-[#20B15A] px-5 py-4 text-sm font-bold text-white shadow-[0_18px_45px_rgba(32,177,90,0.22)] transition hover:bg-[#24c463]"
                   >
-                    Abrir WhatsApp
+                    Enviar no WhatsApp
                   </a>
-                ) : null}
+                ) : (
+                  <p className="rounded-2xl border border-[#D6B07A]/20 bg-[#D6B07A]/10 p-4 text-sm leading-6 text-[#E0C08D]">
+                    A barbearia ainda nao cadastrou um WhatsApp. Seu horario ja foi
+                    registrado no painel.
+                  </p>
+                )}
                 <button
                   type="button"
                   onClick={() => setSuccess(null)}
@@ -719,20 +789,20 @@ export function BookingApp({ slug }: { slug: string }) {
               </div>
             </div>
           ) : (
-            <form onSubmit={book} className="grid gap-8">
-              <div className="space-y-3">
-                <p className="text-xs font-bold uppercase tracking-[0.28em] text-[#D6B07A]/75">
+            <form onSubmit={book} className="grid gap-6">
+              <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-4 sm:p-5">
+                <p className="text-xs font-bold uppercase tracking-[0.24em] text-[#D6B07A]/75">
                   Agendamento
                 </p>
-                <h2 className="premium-text-title text-4xl font-semibold leading-none text-[#F5F1EB] sm:text-5xl">
+                <h2 className="premium-text-title mt-2 text-4xl font-semibold leading-none text-[#F5F1EB] sm:text-5xl">
                   Escolha seu horario
                 </h2>
-                <p className="max-w-2xl text-base leading-7 text-[#B8AEA3]">
-                  Selecione o servico, escolha uma data e confirme seu agendamento.
+                <p className="mt-3 max-w-2xl text-sm leading-6 text-[#B8AEA3] sm:text-base">
+                  Reserve seu atendimento em poucos passos.
                 </p>
               </div>
 
-              <section className="grid gap-3">
+              <section className="grid gap-3 rounded-2xl border border-white/10 bg-white/[0.025] p-4 sm:p-5">
                 <StepTitle step="1. Escolha o servico" title="Servicos disponiveis" />
                 <div className="grid gap-3 sm:grid-cols-2">
                   {services.map((item) => (
@@ -760,7 +830,7 @@ export function BookingApp({ slug }: { slug: string }) {
                 ) : null}
               </section>
 
-              <section className="grid gap-5">
+              <section className="grid gap-5 rounded-2xl border border-white/10 bg-white/[0.025] p-4 sm:p-5">
                 <StepTitle
                   step="2. Escolha a data"
                   title="Data do atendimento"
@@ -784,19 +854,30 @@ export function BookingApp({ slug }: { slug: string }) {
                 </label>
               </section>
 
-              <section className="grid gap-4">
+              <section className="grid gap-4 rounded-2xl border border-white/10 bg-white/[0.025] p-4 sm:p-5">
                 <StepTitle step="3. Escolha o horario" title="Horarios disponiveis" />
-                <TimeSlotGrid
-                  slots={slots}
-                  selectedTime={startTime}
-                  onSelect={(slot) => {
-                    setStartTime(slot);
-                    setError("");
-                  }}
-                />
+                {slotsLoading ? (
+                  <div className="premium-empty-state py-7 text-left">
+                    <p className="font-semibold text-[#F5F1EB]">
+                      Atualizando horarios...
+                    </p>
+                    <p className="mt-2 text-sm leading-6 text-[#B8AEA3]">
+                      Estamos verificando a agenda desta data.
+                    </p>
+                  </div>
+                ) : (
+                  <TimeSlotGrid
+                    slots={slots}
+                    selectedTime={startTime}
+                    onSelect={(slot) => {
+                      setStartTime(slot);
+                      setError("");
+                    }}
+                  />
+                )}
               </section>
 
-              <section className="grid gap-4">
+              <section className="grid gap-4 rounded-2xl border border-white/10 bg-white/[0.025] p-4 sm:p-5">
                 <StepTitle step="4. Seus dados" title="Como podemos te chamar?" />
                 <div className="grid gap-3 sm:grid-cols-2">
                   <label className="grid gap-2">
@@ -805,6 +886,8 @@ export function BookingApp({ slug }: { slug: string }) {
                       name="name"
                       placeholder="Seu nome"
                       required
+                      minLength={2}
+                      maxLength={80}
                       value={customerName}
                       onChange={(event) => setCustomerName(event.target.value)}
                       className="premium-control"
@@ -816,6 +899,10 @@ export function BookingApp({ slug }: { slug: string }) {
                       name="phone"
                       placeholder="WhatsApp com DDD"
                       required
+                      inputMode="tel"
+                      autoComplete="tel"
+                      minLength={10}
+                      maxLength={20}
                       value={customerPhone}
                       onChange={(event) => setCustomerPhone(event.target.value)}
                       className="premium-control"

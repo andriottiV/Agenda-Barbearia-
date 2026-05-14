@@ -16,8 +16,11 @@ const barlowCondensed = Barlow_Condensed({
 const fontVariables = `${inter.variable} ${barlowCondensed.variable}`;
 
 export const metadata: Metadata = {
-  title: "Agenda Barber",
-  description: "Agenda online para barbearias com Supabase.",
+  title: {
+    default: "HoraAi - Agenda para barbeiros",
+    template: "%s | HoraAi",
+  },
+  description: "A agenda mais simples e bonita para barbeiros.",
 };
 
 export default function RootLayout({

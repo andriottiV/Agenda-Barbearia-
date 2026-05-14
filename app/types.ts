@@ -52,6 +52,7 @@ export type Appointment = {
   appointment_time: string;
   status: "scheduled" | "confirmed" | "done" | "cancelled";
   notes: string | null;
+  reminder_sent_at?: string | null;
   created_at?: string;
   clients?: Pick<Client, "name" | "phone"> | null;
   services?: Pick<Service, "name" | "price" | "duration_minutes"> | null;

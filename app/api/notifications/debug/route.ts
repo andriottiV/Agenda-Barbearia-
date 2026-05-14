@@ -61,7 +61,9 @@ export async function GET() {
     .select("id, user_id, appointment_id, type, title, message, read, created_at")
     .single();
 
-  console.log("[Notifications Debug] insert result", data, error);
+  if (error) {
+    console.error("[Notifications Debug] insert error", error);
+  }
 
   return Response.json(
     {

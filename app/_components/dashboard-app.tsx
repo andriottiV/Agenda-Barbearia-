@@ -7,16 +7,19 @@ import { User } from "@supabase/supabase-js";
 import {
   PremiumBadge,
   PremiumEmptyState,
-  PremiumListItem,
 } from "../../components/ui/premium";
+import { usePushNotifications } from "../hooks/usePushNotifications";
 import { logSupabaseError } from "../lib/supabase-debug";
 import { supabase } from "../lib/supabase";
 import { friendlySupabaseError } from "../lib/supabase-errors";
 import {
   currency,
   formatPhoneBR,
+  isInsideBusinessHours,
   makeSlots,
+  minutesFromTime,
   overlapsLunchBreak,
+  overlapsTimeRange,
   todayIso,
   toMoney,
   weekdays,
@@ -107,6 +110,11 @@ function formatNotificationTime(value: string) {
   }).format(new Date(value));
 }
 
+function hasValidPhone(value: string) {
+  const digits = value.replace(/\D/g, "");
+  return digits.length >= 10 && digits.length <= 13;
+}
+
 export function DashboardApp() {
   const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
@@ -135,6 +143,7 @@ export function DashboardApp() {
   const [serviceSavingId, setServiceSavingId] = useState<string | null>(null);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const pushNotifications = usePushNotifications(user);
 
   const publicPath = barbershop ? `/agendar/${barbershop.slug}` : "";
   const unreadNotifications = notifications.filter((item) => !item.read).length;
@@ -292,7 +301,6 @@ export function DashboardApp() {
 
   async function loadNotifications(userId = user?.id) {
     if (!userId) return;
-    console.log("[Dashboard Notifications] user", userId);
 
     const { data, error } = await supabase
       .from("notifications")
@@ -300,8 +308,6 @@ export function DashboardApp() {
       .eq("user_id", userId)
       .order("created_at", { ascending: false })
       .limit(10);
-
-    console.log("[Dashboard Notifications] notifications", data, error);
 
     if (error) {
       logSupabaseError("[Dashboard] Erro ao carregar notificacoes", error, {
@@ -453,6 +459,12 @@ export function DashboardApp() {
     const occupiedSlots = appointments
       .filter((appointment) => appointment.status !== "cancelled")
       .map((appointment) => appointment.appointment_time.slice(0, 5));
+    const occupiedRanges = appointments
+      .filter((appointment) => appointment.status !== "cancelled")
+      .map((appointment) => ({
+        startTime: appointment.appointment_time.slice(0, 5),
+        durationMinutes: appointment.services?.duration_minutes ?? 30,
+      }));
 
     return makeSlots(
       selectedDayHours.opens_at,
@@ -464,6 +476,7 @@ export function DashboardApp() {
         startsAt: selectedDayHours.lunch_starts_at,
         endsAt: selectedDayHours.lunch_ends_at,
       },
+      occupiedRanges,
     );
   }, [appointments, selectedDayHours, selectedServiceId, services]);
 
@@ -631,8 +644,14 @@ export function DashboardApp() {
 
   async function copyPublicLink() {
     if (!publicPath) return;
-    await navigator.clipboard.writeText(`${window.location.origin}${publicPath}`);
-    setNotice("Link publico copiado.");
+    const fullUrl = `${window.location.origin}${publicPath}`;
+
+    try {
+      await navigator.clipboard.writeText(fullUrl);
+      setNotice("Link de agendamento copiado.");
+    } catch {
+      setNotice(`Link de agendamento: ${fullUrl}`);
+    }
   }
 
   async function saveProfile(event: FormEvent<HTMLFormElement>) {
@@ -652,6 +671,11 @@ export function DashboardApp() {
       phone: String(formData.get("phone") ?? "").trim(),
       address: String(formData.get("address") ?? "").trim(),
     };
+
+    if (!payload.name || !payload.slug) {
+      setNotice("Informe o nome da barbearia para salvar o perfil.");
+      return;
+    }
 
     setActionLoading(true);
     try {
@@ -681,6 +705,21 @@ export function DashboardApp() {
       active: formData.get("active") === "on",
       display_order: services.length,
     };
+
+    if (!payload.name) {
+      setNotice("Informe o nome do servico.");
+      return;
+    }
+
+    if (!Number.isFinite(payload.duration_minutes) || payload.duration_minutes <= 0) {
+      setNotice("Informe uma duracao valida para o servico.");
+      return;
+    }
+
+    if (!Number.isFinite(payload.price) || payload.price < 0) {
+      setNotice("Informe um preco valido para o servico.");
+      return;
+    }
 
     setActionLoading(true);
     try {
@@ -743,6 +782,21 @@ export function DashboardApp() {
       duration_minutes: Number(formData.get("duration_minutes")),
       active: formData.get("active") === "on",
     };
+
+    if (!payload.name) {
+      setNotice("Informe o nome do servico.");
+      return;
+    }
+
+    if (!Number.isFinite(payload.duration_minutes) || payload.duration_minutes <= 0) {
+      setNotice("Informe uma duracao valida para o servico.");
+      return;
+    }
+
+    if (!Number.isFinite(payload.price) || payload.price < 0) {
+      setNotice("Informe um preco valido para o servico.");
+      return;
+    }
 
     setServiceSavingId(service.id);
     try {
@@ -871,6 +925,31 @@ export function DashboardApp() {
       lunch_ends_at: String(formData.get(`lunch_ends_${weekday}`) || "13:00"),
     }));
 
+    const invalidRow = rows.find((row) => {
+      if (!row.active) return false;
+      if (minutesFromTime(row.opens_at) >= minutesFromTime(row.closes_at)) {
+        return true;
+      }
+
+      if (!row.lunch_enabled) return false;
+
+      const lunchStarts = minutesFromTime(row.lunch_starts_at);
+      const lunchEnds = minutesFromTime(row.lunch_ends_at);
+
+      return (
+        lunchStarts >= lunchEnds ||
+        lunchStarts < minutesFromTime(row.opens_at) ||
+        lunchEnds > minutesFromTime(row.closes_at)
+      );
+    });
+
+    if (invalidRow) {
+      setNotice(
+        `Revise os horarios de ${weekdays[invalidRow.weekday]}: abertura, fechamento e pausa precisam estar em ordem.`,
+      );
+      return;
+    }
+
     const appointmentsInLunch = clientAppointments.filter((appointment) => {
       if (appointment.status === "cancelled") return false;
       const weekday = new Date(`${appointment.appointment_date}T12:00:00`).getDay();
@@ -920,8 +999,13 @@ export function DashboardApp() {
         Number(formData.get("preferred_frequency_days")) || null,
     };
 
-    if (!clientPayload.name || !clientPayload.phone) {
-      setNotice("Nome e telefone são obrigatórios para salvar o cliente.");
+    if (!clientPayload.name) {
+      setNotice("Nome e telefone sao obrigatorios para salvar o cliente.");
+      return;
+    }
+
+    if (!hasValidPhone(clientPayload.phone)) {
+      setNotice("Informe um WhatsApp valido com DDD.");
       return;
     }
 
@@ -949,14 +1033,26 @@ export function DashboardApp() {
 
     const form = event.currentTarget;
     const formData = new FormData(form);
+    const name = String(formData.get("name")).trim();
+    const phone = String(formData.get("phone") ?? "").trim();
+
+    if (!name) {
+      setNotice("Informe o nome do cliente.");
+      return;
+    }
+
+    if (!hasValidPhone(phone)) {
+      setNotice("Informe um WhatsApp valido com DDD.");
+      return;
+    }
 
     setActionLoading(true);
     try {
       const { error } = await supabase
         .from("clients")
         .update({
-          name: String(formData.get("name")).trim(),
-          phone: String(formData.get("phone") ?? "").trim(),
+          name,
+          phone,
           notes: String(formData.get("notes") ?? "").trim() || null,
           preferred_frequency_days:
             Number(formData.get("preferred_frequency_days")) || null,
@@ -1024,17 +1120,14 @@ export function DashboardApp() {
     const formData = new FormData(form);
     const service = services.find((item) => item.id === formData.get("service_id"));
     const client = clients.find((item) => item.id === formData.get("client_id"));
-    if (!service || !client) return;
+    if (!service || !client) {
+      setNotice("Selecione cliente e servico para criar o agendamento.");
+      return;
+    }
 
     const appointmentTime = String(formData.get("appointment_time"));
-    const conflict = appointments.some(
-      (item) =>
-        item.status !== "cancelled" &&
-        item.appointment_time.slice(0, 5) === appointmentTime,
-    );
-
-    if (conflict) {
-      setNotice("Este horario ja esta ocupado.");
+    if (!appointmentTime) {
+      setNotice("Selecione um horario livre.");
       return;
     }
 
@@ -1042,8 +1135,40 @@ export function DashboardApp() {
       (item) => item.weekday === new Date(`${date}T12:00:00`).getDay(),
     );
 
+    if (!appointmentDayHours?.active) {
+      setNotice("A barbearia esta fechada nesta data.");
+      return;
+    }
+
     if (
-      appointmentDayHours &&
+      !isInsideBusinessHours(
+        appointmentTime,
+        service.duration_minutes,
+        appointmentDayHours.opens_at,
+        appointmentDayHours.closes_at,
+      )
+    ) {
+      setNotice("Este horario fica fora do expediente.");
+      return;
+    }
+
+    const conflict = appointments.some((item) => {
+      if (item.status === "cancelled") return false;
+
+      return overlapsTimeRange(
+        appointmentTime,
+        service.duration_minutes,
+        item.appointment_time.slice(0, 5),
+        item.services?.duration_minutes ?? 30,
+      );
+    });
+
+    if (conflict) {
+      setNotice("Este horario ja esta ocupado.");
+      return;
+    }
+
+    if (
       overlapsLunchBreak(appointmentTime, service.duration_minutes, {
         enabled: appointmentDayHours.lunch_enabled,
         startsAt: appointmentDayHours.lunch_starts_at,
@@ -1146,18 +1271,18 @@ export function DashboardApp() {
         </aside>
 
         <div className="grid min-w-0 content-start gap-6 px-4 py-5 sm:px-6 lg:px-8">
-          <header className="rounded-[var(--premium-radius-lg)] border border-[var(--premium-border-soft)] bg-black/20 backdrop-blur-xl">
+          <header className="relative z-[9000] overflow-visible rounded-[var(--premium-radius-lg)] border border-[var(--premium-border-soft)] bg-black/20 backdrop-blur-xl">
         <div className="flex flex-col gap-4 px-5 py-5 lg:flex-row lg:items-center lg:justify-between">
           <div>
             <p className="text-sm leading-6 text-[var(--premium-text-300)]">
-              Agenda Barber · {barbershop?.name ?? "Minha barbearia"}
+              HoraAi · {barbershop?.name ?? "Minha barbearia"}
             </p>
             <h1 className="premium-text-title text-4xl font-bold leading-none text-[var(--premium-text-100)]">
               {tab === "agenda" ? "Agenda" : nav.find(([key]) => key === tab)?.[1]}
             </h1>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="relative">
+          <div className="relative z-[9999] flex flex-wrap items-center gap-2 overflow-visible">
+            <div className="relative z-[9999]">
               <button
                 type="button"
                 onClick={() => setNotificationsOpen((current) => !current)}
@@ -1186,7 +1311,7 @@ export function DashboardApp() {
               </button>
 
               {notificationsOpen ? (
-                <div className="absolute right-0 z-50 mt-3 w-[min(22rem,calc(100vw-2rem))] rounded-[var(--premium-radius-lg)] border border-[var(--premium-border-soft)] bg-[var(--premium-bg-glass-strong)] p-3 shadow-[var(--premium-shadow-card)] backdrop-blur-xl">
+                <div className="fixed left-4 right-4 top-24 z-[9999] max-h-[calc(100vh-7rem)] overflow-hidden rounded-[var(--premium-radius-lg)] border border-[var(--premium-border-soft)] bg-[var(--premium-bg-glass-strong)] p-3 shadow-[var(--premium-shadow-card)] backdrop-blur-xl sm:absolute sm:left-auto sm:right-0 sm:top-full sm:mt-3 sm:w-[min(22rem,calc(100vw-2rem))]">
                   <div className="flex items-center justify-between gap-3 border-b border-white/10 px-2 pb-3">
                     <div>
                       <p className="text-sm font-bold text-[var(--premium-text-100)]">
@@ -1252,16 +1377,29 @@ export function DashboardApp() {
               <>
                 <button
                   type="button"
+                  onClick={async () => {
+                    const result =
+                      await pushNotifications.enablePushNotifications();
+                    setNotice(result.message);
+                  }}
+                  disabled={pushNotifications.isDisabled}
+                  title={pushNotifications.message || undefined}
+                  className="rounded-[var(--premium-radius-md)] border border-[var(--premium-border-soft)] bg-black/25 px-4 py-3 text-sm font-bold text-[var(--premium-text-200)] transition hover:border-[var(--premium-border-strong)] disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {pushNotifications.buttonLabel}
+                </button>
+                <button
+                  type="button"
                   onClick={copyPublicLink}
                   className="rounded-[var(--premium-radius-md)] border border-[var(--premium-border-soft)] bg-black/25 px-4 py-3 text-sm font-bold text-[var(--premium-gold-300)] transition hover:border-[var(--premium-border-strong)]"
                 >
-                  Copiar link
+                  Copiar link de agendamento
                 </button>
                 <Link
                   className="rounded-[var(--premium-radius-md)] border border-[var(--premium-border-strong)] bg-[linear-gradient(135deg,var(--premium-gold-300),var(--premium-gold-500))] px-4 py-3 text-sm font-black text-black transition hover:brightness-110"
                   href={`/agendar/${barbershop.slug}`}
                 >
-                  Link publico
+                  Abrir link público
                 </Link>
               </>
             ) : null}
@@ -1276,7 +1414,7 @@ export function DashboardApp() {
       </header>
 
       <div className="grid gap-6">
-        <nav className="flex gap-2 overflow-x-auto rounded-[var(--premium-radius-lg)] border border-[var(--premium-border-soft)] bg-black/25 p-2 backdrop-blur-xl lg:hidden">
+        <nav className="sticky top-2 z-30 flex gap-2 overflow-x-auto rounded-[var(--premium-radius-lg)] border border-[var(--premium-border-soft)] bg-[rgba(8,8,8,0.82)] p-2 shadow-[var(--premium-shadow-soft)] backdrop-blur-xl lg:hidden">
           {nav.map(([key, label]) => (
             <button
               key={key}
@@ -1300,124 +1438,28 @@ export function DashboardApp() {
 
         {!barbershop && tab !== "profile" ? (
           <p className="rounded-[var(--premium-radius-md)] border border-[var(--premium-border-strong)] bg-[rgba(214,176,122,0.1)] px-4 py-3 text-sm text-[var(--premium-gold-300)]">
-            Cadastre o perfil da barbearia para liberar agenda, servicos e link publico.
+            Cadastre o perfil da barbearia para liberar agenda, servicos e link de agendamento.
           </p>
         ) : null}
 
         {tab === "agenda" && barbershop ? (
           <section className="grid gap-5">
-            <div className="hidden">
-              <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+            <div className="rounded-[var(--premium-radius-lg)] border border-[var(--premium-border-soft)] bg-[rgba(16,16,16,0.72)] p-4 shadow-[var(--premium-shadow-soft)] backdrop-blur-xl sm:p-5">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
                 <div>
-                  <p className="text-sm font-bold uppercase text-sky-200">
-                    Resumo do dia
+                  <p className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--premium-gold-300)]">
+                    Agenda do barbeiro
                   </p>
-                  <h2 className="mt-1 text-2xl font-bold">
+                  <h2 className="mt-2 text-2xl font-black leading-tight text-[var(--premium-text-100)] sm:text-3xl">
                     {date === todayIso() ? "Hoje" : date}
                   </h2>
+                  <p className="mt-1 text-sm text-[var(--premium-text-300)]">
+                    {selectedDayHours?.active
+                      ? `${selectedDayHours.opens_at.slice(0, 5)} as ${selectedDayHours.closes_at.slice(0, 5)}`
+                      : "Fechado nesta data"}
+                  </p>
                 </div>
-                <input
-                  type="date"
-                  value={date}
-                  onChange={(event) => {
-                    setDate(event.target.value);
-                    load(user, event.target.value);
-                  }}
-                  className="field max-w-52 border-slate-700 bg-slate-900 text-white"
-                />
-              </div>
-
-              <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
-                <PremiumMetric label="Atendimentos de hoje" value={String(dailySummary.count)} />
-                <PremiumMetric label="Receita de hoje" value={currency(dailySummary.revenue)} />
-                <PremiumMetric label="Clientes atendidos" value={String(dailySummary.attendedClients)} />
-                <PremiumMetric
-                  label="Proximo horario"
-                  value={
-                    dailySummary.nextAppointment
-                      ? `${dailySummary.nextAppointment.appointment_time.slice(0, 5)} - ${dailySummary.nextAppointment.clients?.name ?? "Cliente"}`
-                      : "Livre"
-                  }
-                />
-                <PremiumMetric label="Horarios livres" value={String(adminAvailableSlots.length)} />
-                <PremiumMetric label="Faltas/cancelamentos" value={String(dailySummary.cancellations)} />
-              </div>
-
-              <button
-                type="button"
-                onClick={() => setExpandedSummary((current) => !current)}
-                className="mt-4 rounded-md border border-sky-300/40 px-4 py-2 text-sm font-bold text-sky-100 transition hover:bg-white/10"
-              >
-                {expandedSummary ? "Ocultar resumo completo" : "Ver resumo completo"}
-              </button>
-
-              {expandedSummary ? (
-                <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                  <PremiumMetric label="Resumo da semana" value={`${fullSummary.week.count} atend.`} detail={currency(fullSummary.week.revenue)} />
-                  <PremiumMetric label="Resumo da quinzena" value={`${fullSummary.fortnight.count} atend.`} detail={currency(fullSummary.fortnight.revenue)} />
-                  <PremiumMetric label="Resumo do mes" value={`${fullSummary.month.count} atend.`} detail={currency(fullSummary.month.revenue)} />
-                  <PremiumMetric
-                    label="Comparativo de melhor dia"
-                    value={fullSummary.bestAppointmentDay?.[0] ?? fullSummary.bestRevenueDay?.[0] ?? "-"}
-                    detail="Mais forte no historico"
-                  />
-                  <PremiumMetric label="Dia com maior receita" value={fullSummary.bestRevenueDay?.[0] ?? "-"} detail={currency(fullSummary.bestRevenueDay?.[1].revenue ?? 0)} />
-                  <PremiumMetric label="Dia com mais atendimentos" value={fullSummary.bestAppointmentDay?.[0] ?? "-"} detail={`${fullSummary.bestAppointmentDay?.[1].count ?? 0} atend.`} />
-                  <PremiumMetric label="Media diaria" value={currency(fullSummary.dailyAverage)} />
-                  <PremiumMetric label="Ticket medio" value={currency(fullSummary.averageTicket)} />
-                </div>
-              ) : null}
-            </div>
-
-            <div className="grid gap-5 xl:grid-cols-[0.88fr_1.55fr_0.72fr]">
-            <div className="grid gap-4">
-              <Panel title="Novo agendamento">
-                <form onSubmit={createAppointment} className="grid gap-3">
-                  <select
-                    name="client_id"
-                    required
-                    className="field"
-                    value={selectedClientId ?? ""}
-                    onChange={(event) => setSelectedClientId(event.target.value)}
-                  >
-                    <option value="">Cliente</option>
-                    {clients.map((client) => (
-                      <option key={client.id} value={client.id}>
-                        {client.name}
-                      </option>
-                    ))}
-                  </select>
-                  <select
-                    name="service_id"
-                    required
-                    className="field"
-                    value={selectedServiceId}
-                    onChange={(event) => setSelectedServiceId(event.target.value)}
-                  >
-                    <option value="">Servico</option>
-                    {services
-                      .filter((service) => service.active)
-                      .map((service) => (
-                        <option key={service.id} value={service.id}>
-                          {service.name}
-                        </option>
-                      ))}
-                  </select>
-                  <select
-                    name="appointment_time"
-                    required
-                    className="field"
-                    disabled={!selectedServiceId}
-                  >
-                    <option value="">
-                      {selectedServiceId ? "Horario livre" : "Selecione um servico"}
-                    </option>
-                    {adminAvailableSlots.map((slot) => (
-                      <option key={slot} value={slot}>
-                        {slot}
-                      </option>
-                    ))}
-                  </select>
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                   <input
                     type="date"
                     value={date}
@@ -1425,116 +1467,184 @@ export function DashboardApp() {
                       setDate(event.target.value);
                       load(user, event.target.value);
                     }}
-                    className="field"
+                    className="field sm:w-48"
                   />
-                  {selectedDayHours?.active && selectedDayHours.lunch_enabled ? (
-                    <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900">
-                      Pausa para almoco:{" "}
-                      {selectedDayHours.lunch_starts_at?.slice(0, 5)} as{" "}
-                      {selectedDayHours.lunch_ends_at?.slice(0, 5)}
-                    </p>
-                  ) : null}
-                  <textarea
-                    name="notes"
-                    placeholder="Observacoes"
-                    className="field min-h-20 py-3"
-                  />
-                  <button disabled={actionLoading} className="primary-button">
-                    Criar agendamento
-                  </button>
-                </form>
-              </Panel>
-            </div>
-            <Panel title="Agenda do dia">
-              <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <p className="text-sm text-[var(--premium-text-300)]">
-                  {date === todayIso() ? "Hoje" : date}
-                </p>
-                <input
-                  type="date"
-                  value={date}
-                  onChange={(event) => {
-                    setDate(event.target.value);
-                    load(user, event.target.value);
-                  }}
-                  className="field max-w-48"
-                />
+                  <a href="#novo-agendamento" className="primary-button inline-flex justify-center">
+                    Novo agendamento
+                  </a>
+                </div>
               </div>
-              <div className="grid gap-3">
-                {selectedDayHours?.active && selectedDayHours.lunch_enabled ? (
-                  <LunchBreakBlock
-                    startsAt={selectedDayHours.lunch_starts_at}
-                    endsAt={selectedDayHours.lunch_ends_at}
-                  />
-                ) : null}
-                {appointments.map((appointment) => (
-                  <AppointmentItem
-                    key={appointment.id}
-                    appointment={appointment}
-                    barbershopName={barbershop.name}
-                    onCancel={() => updateAppointment(appointment.id, "cancelled")}
-                    onConfirm={() => updateAppointment(appointment.id, "confirmed")}
-                  />
-                ))}
-                {!appointments.length ? (
-                  <PremiumEmptyState
-                    title="Nenhum agendamento para esta data."
-                    description="Quando um horario for criado, ele aparece aqui na agenda do dia."
-                  />
-                ) : null}
-              </div>
-            </Panel>
-            <Panel title="Resumo do dia">
-              <div className="grid gap-3">
-                <SummaryStat label="Agendamentos" value={String(dailySummary.count)} />
-                <SummaryStat label="Receita" value={currency(dailySummary.revenue)} />
-                <SummaryStat
-                  label="Clientes atendidos"
-                  value={String(dailySummary.attendedClients)}
-                />
-                <SummaryStat
+
+              <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                <AgendaMetric label="Agendamentos" value={String(dailySummary.count)} />
+                <AgendaMetric label="Receita prevista" value={currency(dailySummary.revenue)} />
+                <AgendaMetric
                   label="Proximo horario"
                   value={
                     dailySummary.nextAppointment
                       ? dailySummary.nextAppointment.appointment_time.slice(0, 5)
                       : "Livre"
                   }
+                  detail={dailySummary.nextAppointment?.clients?.name ?? undefined}
                 />
-                <SummaryStat
-                  label="Horarios livres"
-                  value={String(adminAvailableSlots.length)}
-                />
-                <SummaryStat
-                  label="Cancelamentos"
-                  value={String(dailySummary.cancellations)}
-                />
+                <AgendaMetric label="Horarios livres" value={String(adminAvailableSlots.length)} />
               </div>
-              <button
-                type="button"
-                onClick={() => setExpandedSummary((current) => !current)}
-                className="small-button mt-4 w-full justify-center"
-              >
-                {expandedSummary ? "Ocultar resumo completo" : "Ver resumo completo"}
-              </button>
-              {expandedSummary ? (
-                <div className="mt-4 grid gap-3">
-                  <SummaryStat
-                    label="Semana"
-                    value={`${fullSummary.week.count} atend.`}
-                    detail={currency(fullSummary.week.revenue)}
-                  />
-                  <SummaryStat
-                    label="Mes"
-                    value={`${fullSummary.month.count} atend.`}
-                    detail={currency(fullSummary.month.revenue)}
-                  />
-                  <SummaryStat
-                    label="Ticket medio"
-                    value={currency(fullSummary.averageTicket)}
-                  />
-                </div>
-              ) : null}
-            </Panel>
+            </div>
+
+            <div className="grid gap-5 xl:grid-cols-[minmax(0,1.45fr)_minmax(18rem,0.65fr)]">
+              <section className="grid gap-4">
+                <Panel title="Agenda do dia">
+                  <div className="grid gap-3">
+                    {selectedDayHours?.active && selectedDayHours.lunch_enabled ? (
+                      <LunchBreakBlock
+                        startsAt={selectedDayHours.lunch_starts_at}
+                        endsAt={selectedDayHours.lunch_ends_at}
+                      />
+                    ) : null}
+                    {appointments.map((appointment) => (
+                      <AppointmentItem
+                        key={appointment.id}
+                        appointment={appointment}
+                        barbershopName={barbershop.name}
+                        onCancel={() => updateAppointment(appointment.id, "cancelled")}
+                        onConfirm={() => updateAppointment(appointment.id, "confirmed")}
+                      />
+                    ))}
+                    {!appointments.length ? (
+                      <div className="rounded-[var(--premium-radius-lg)] border border-dashed border-[var(--premium-border-soft)] bg-white/[0.025] p-8 text-center">
+                        <p className="text-base font-bold text-[var(--premium-text-100)]">
+                          Nenhum horario marcado.
+                        </p>
+                        <p className="mx-auto mt-2 max-w-sm text-sm leading-6 text-[var(--premium-text-300)]">
+                          Crie um agendamento pelo formulario ou compartilhe o link publico.
+                        </p>
+                        <a href="#novo-agendamento" className="primary-button mt-5 inline-flex">
+                          Criar agendamento
+                        </a>
+                      </div>
+                    ) : null}
+                  </div>
+                </Panel>
+              </section>
+
+              <aside className="grid content-start gap-4">
+                <Panel title="Novo agendamento">
+                  <form
+                    id="novo-agendamento"
+                    onSubmit={createAppointment}
+                    className="grid gap-3"
+                  >
+                    <select
+                      name="client_id"
+                      required
+                      className="field"
+                      value={selectedClientId ?? ""}
+                      onChange={(event) => setSelectedClientId(event.target.value)}
+                    >
+                      <option value="">Cliente</option>
+                      {clients.map((client) => (
+                        <option key={client.id} value={client.id}>
+                          {client.name}
+                        </option>
+                      ))}
+                    </select>
+                    <select
+                      name="service_id"
+                      required
+                      className="field"
+                      value={selectedServiceId}
+                      onChange={(event) => setSelectedServiceId(event.target.value)}
+                    >
+                      <option value="">Servico</option>
+                      {services
+                        .filter((service) => service.active)
+                        .map((service) => (
+                          <option key={service.id} value={service.id}>
+                            {service.name}
+                          </option>
+                        ))}
+                    </select>
+                    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
+                      <input
+                        type="date"
+                        value={date}
+                        onChange={(event) => {
+                          setDate(event.target.value);
+                          load(user, event.target.value);
+                        }}
+                        className="field"
+                      />
+                      <select
+                        name="appointment_time"
+                        required
+                        className="field"
+                        disabled={!selectedServiceId}
+                      >
+                        <option value="">
+                          {selectedServiceId ? "Horario livre" : "Selecione um servico"}
+                        </option>
+                        {adminAvailableSlots.map((slot) => (
+                          <option key={slot} value={slot}>
+                            {slot}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    {selectedDayHours?.active && selectedDayHours.lunch_enabled ? (
+                      <p className="rounded-[var(--premium-radius-md)] border border-[var(--premium-border-soft)] bg-[rgba(214,176,122,0.08)] px-3 py-2 text-xs font-semibold leading-5 text-[var(--premium-gold-300)]">
+                        Pausa: {selectedDayHours.lunch_starts_at?.slice(0, 5)} as{" "}
+                        {selectedDayHours.lunch_ends_at?.slice(0, 5)}
+                      </p>
+                    ) : null}
+                    <textarea
+                      name="notes"
+                      placeholder="Observacoes"
+                      className="field min-h-20 py-3"
+                    />
+                    <button disabled={actionLoading} className="primary-button">
+                      Criar agendamento
+                    </button>
+                  </form>
+                </Panel>
+
+                <Panel title="Resumo">
+                  <div className="grid gap-3">
+                    <SummaryStat
+                      label="Clientes"
+                      value={String(dailySummary.attendedClients)}
+                    />
+                    <SummaryStat
+                      label="Cancelamentos"
+                      value={String(dailySummary.cancellations)}
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setExpandedSummary((current) => !current)}
+                    className="small-button mt-4 w-full justify-center"
+                  >
+                    {expandedSummary ? "Ocultar historico" : "Ver historico"}
+                  </button>
+                  {expandedSummary ? (
+                    <div className="mt-4 grid gap-3">
+                      <SummaryStat
+                        label="Semana"
+                        value={`${fullSummary.week.count} atend.`}
+                        detail={currency(fullSummary.week.revenue)}
+                      />
+                      <SummaryStat
+                        label="Mes"
+                        value={`${fullSummary.month.count} atend.`}
+                        detail={currency(fullSummary.month.revenue)}
+                      />
+                      <SummaryStat
+                        label="Ticket medio"
+                        value={currency(fullSummary.averageTicket)}
+                      />
+                    </div>
+                  ) : null}
+                </Panel>
+              </aside>
             </div>
           </section>
         ) : null}
@@ -2187,7 +2297,7 @@ function ServiceSkeleton() {
   );
 }
 
-function PremiumMetric({
+function AgendaMetric({
   detail,
   label,
   value,
@@ -2197,12 +2307,18 @@ function PremiumMetric({
   value: string;
 }) {
   return (
-    <div className="rounded-md border border-white/10 bg-white/[0.06] p-4">
-      <p className="text-xs font-bold uppercase text-sky-100">{label}</p>
-      <p className="mt-2 break-words text-2xl font-black leading-tight text-white">
+    <div className="min-w-0 rounded-[var(--premium-radius-md)] border border-[var(--premium-border-soft)] bg-white/[0.035] p-4">
+      <p className="text-[0.68rem] font-bold uppercase tracking-[0.14em] text-[var(--premium-text-500)]">
+        {label}
+      </p>
+      <p className="mt-2 truncate text-2xl font-black leading-none text-[var(--premium-text-100)]">
         {value}
       </p>
-      {detail ? <p className="mt-1 text-sm text-slate-300">{detail}</p> : null}
+      {detail ? (
+        <p className="mt-2 truncate text-xs font-semibold text-[var(--premium-gold-300)]">
+          {detail}
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -2230,15 +2346,15 @@ function SummaryStat({
   value: string;
 }) {
   return (
-    <div className="rounded-[var(--premium-radius-md)] border border-[var(--premium-border-soft)] bg-white/[0.035] p-4">
-      <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--premium-text-500)]">
+    <div className="rounded-[var(--premium-radius-md)] border border-[var(--premium-border-soft)] bg-white/[0.03] p-3">
+      <p className="text-[0.68rem] font-semibold uppercase tracking-[0.12em] text-[var(--premium-text-500)]">
         {label}
       </p>
-      <p className="mt-2 break-words text-2xl font-black text-[var(--premium-gold-300)]">
+      <p className="mt-1 break-words text-xl font-black text-[var(--premium-gold-300)]">
         {value}
       </p>
       {detail ? (
-        <p className="mt-1 text-sm text-[var(--premium-text-300)]">{detail}</p>
+        <p className="mt-1 text-xs text-[var(--premium-text-300)]">{detail}</p>
       ) : null}
     </div>
   );
@@ -2382,26 +2498,32 @@ function AppointmentItem({
   onConfirm: () => void;
 }) {
   return (
-    <PremiumListItem className="border-l-4 border-l-[var(--premium-gold-400)]">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+    <article className="rounded-[var(--premium-radius-lg)] border border-[var(--premium-border-soft)] bg-[rgba(16,16,16,0.78)] p-4 shadow-[var(--premium-shadow-soft)] backdrop-blur-xl">
+      <div className="grid gap-4 sm:grid-cols-[auto_1fr_auto] sm:items-center">
+        <div className="grid h-16 w-20 place-items-center rounded-[var(--premium-radius-md)] border border-[var(--premium-border-strong)] bg-[rgba(214,176,122,0.1)]">
+          <p className="text-2xl font-black leading-none text-[var(--premium-gold-300)]">
+            {appointment.appointment_time.slice(0, 5)}
+          </p>
+        </div>
+
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <p className="text-lg font-bold text-[var(--premium-text-100)]">
-              {appointment.appointment_time.slice(0, 5)}
+            <p className="truncate text-base font-bold text-[var(--premium-text-100)]">
+              {appointment.clients?.name ?? "Cliente"}
             </p>
             <PremiumBadge tone={appointment.status === "cancelled" ? "red" : "gold"}>
               {appointment.status}
             </PremiumBadge>
           </div>
-          <p className="mt-2 font-semibold text-[var(--premium-text-100)]">
-            {appointment.clients?.name ?? "Cliente"}
+          <p className="mt-1 truncate text-sm font-semibold text-[var(--premium-text-300)]">
+            {appointment.services?.name ?? "Servico"}
           </p>
-          <p className="mt-1 text-sm leading-6 text-[var(--premium-text-300)]">
-            {appointment.services?.name ?? "Servico"} ·{" "}
+          <p className="mt-1 text-xs leading-5 text-[var(--premium-text-500)]">
             {formatPhoneBR(appointment.clients?.phone)}
           </p>
         </div>
-        <div className="flex flex-wrap gap-2">
+
+        <div className="grid grid-cols-3 gap-2 sm:flex sm:flex-wrap sm:justify-end">
           {appointment.clients?.phone ? (
             <a
               href={whatsappLink(
@@ -2409,20 +2531,21 @@ function AppointmentItem({
                 `Ola ${appointment.clients.name}, seu horario na ${barbershopName} esta marcado para ${appointment.appointment_date} as ${appointment.appointment_time.slice(0, 5)}.`,
               )}
               target="_blank"
-              className="small-button"
+              rel="noreferrer"
+              className="small-button min-h-11"
             >
               WhatsApp
             </a>
           ) : null}
-          <button onClick={onConfirm} className="small-button">
+          <button type="button" onClick={onConfirm} className="small-button min-h-11">
             Confirmar
           </button>
-          <button onClick={onCancel} className="small-button">
+          <button type="button" onClick={onCancel} className="small-button min-h-11">
             Cancelar
           </button>
         </div>
       </div>
-    </PremiumListItem>
+    </article>
   );
 }
 
@@ -2460,8 +2583,8 @@ function Panel({
   children: React.ReactNode;
 }) {
   return (
-    <section className="rounded-[var(--premium-radius-lg)] border border-[var(--premium-border-soft)] bg-[var(--premium-bg-glass)] p-5 shadow-[var(--premium-shadow-soft)] backdrop-blur-xl">
-      <h2 className="mb-4 text-xl font-bold text-[var(--premium-text-100)]">
+    <section className="rounded-[var(--premium-radius-lg)] border border-[var(--premium-border-soft)] bg-[var(--premium-bg-glass)] p-4 shadow-[var(--premium-shadow-soft)] backdrop-blur-xl sm:p-5">
+      <h2 className="mb-4 text-base font-bold text-[var(--premium-text-100)] sm:text-lg">
         {title}
       </h2>
       {children}

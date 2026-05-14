@@ -7,8 +7,6 @@ export async function GET() {
     const { apiKey, notificationEmail, fromEmail, diagnostics } =
       getResendConfig();
 
-    console.log("[TestEmail] Configuracao Resend", diagnostics);
-
     if (!apiKey || !notificationEmail) {
       console.error("[TestEmail] RESEND_API_KEY ou NOTIFICATION_EMAIL ausente", {
         hasApiKey: Boolean(apiKey),
@@ -29,19 +27,12 @@ export async function GET() {
 
     const resend = new Resend(apiKey);
 
-    console.log("[TestEmail] Enviando e-mail de teste", {
-      from: fromEmail,
-      to: notificationEmail,
-    });
-
     const result = await resend.emails.send({
       from: fromEmail,
       to: notificationEmail,
       subject: "Teste de notificacao da agenda",
       html: "<h2>Funcionou!</h2><p>Seu sistema de e-mail esta enviando notificacoes.</p>",
     });
-
-    console.log("[TestEmail] Resposta completa do Resend", result);
 
     if (result.error) {
       console.error("[TestEmail] Erro retornado pelo Resend", {

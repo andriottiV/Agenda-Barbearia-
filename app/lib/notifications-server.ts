@@ -1,5 +1,6 @@
 import { createResendClient, getResendConfig } from "./resend-server";
 import { currency, whatsappLink } from "./schedule";
+import { sendPushToUser } from "./firebase-admin";
 import {
   createServerSupabaseAdminClient,
   getServerSupabaseDiagnostics,
@@ -123,8 +124,6 @@ export async function POST(request: Request) {
 
   try {
     payload = (await request.json()) as NewAppointmentPayload;
-    console.log("[Notifications] payload", payload);
-    console.log("[Notifications API] Recebido payload", payload);
   } catch (error) {
     console.error("[Notifications API] Erro ao ler payload", error);
     return Response.json({ error: "Invalid JSON body." }, { status: 400 });
@@ -142,13 +141,6 @@ export async function POST(request: Request) {
   const appointmentTime = field(payload.appointmentTime);
   const notes = field(payload.notes);
   const barbershopName = field(payload.barbershopName);
-
-  console.log("[Notifications API] Barbearia recebida", {
-    barbershopId,
-    barbershopSlug,
-    barbershopName,
-  });
-  console.log("[Notifications API] appointmentId recebido", appointmentId);
 
   if (
     (!barbershopId && !barbershopSlug) ||
@@ -181,6 +173,8 @@ export async function POST(request: Request) {
   const results: {
     notification?: unknown;
     notificationError?: unknown;
+    push?: unknown;
+    pushError?: unknown;
     email?: unknown;
     emailError?: unknown;
     emailSkipped?: boolean;
@@ -195,8 +189,6 @@ export async function POST(request: Request) {
     results.notificationError = "SUPABASE_SERVICE_ROLE_KEY ausente";
   } else {
 
-  console.log("[Notifications API] Criando notificacao interna");
-
   const shopQuery = adminSupabase
     .from("barbershops")
     .select("id, owner_id, name");
@@ -206,7 +198,6 @@ export async function POST(request: Request) {
   const { data: shops, error: shopError } = await filteredShopQuery.limit(1);
   const shop = shops?.[0];
   const ownerUserId = typeof shop?.owner_id === "string" ? shop.owner_id : "";
-  console.log("[Notifications] owner user id", ownerUserId);
 
   if (shopError || !ownerUserId) {
     console.error("[Notifications API] Erro ao encontrar dono da barbearia", {
@@ -235,22 +226,52 @@ export async function POST(request: Request) {
     .select("id, user_id, appointment_id, type, title, message, read, created_at")
     .single();
 
-  console.log(
-    "[Notifications API] Resultado Supabase",
-    notification,
-    notificationError,
-  );
-  console.log("[Notifications] insert result", notification, notificationError);
-
   results.notification = notification;
   if (notificationError) {
     results.notificationError = notificationError;
   }
+
+  try {
+    const pushMessage = `${customerName} agendou ${serviceName} para ${appointmentDate} às ${appointmentTime}.`;
+
+    const pushResult = await sendPushToUser({
+      supabase: adminSupabase,
+      userId: ownerUserId,
+      payload: {
+        title: "Novo agendamento no HoraAi",
+        body: pushMessage,
+        link: "/dashboard",
+        data: {
+          appointmentId: appointmentId || "",
+          barbershopId: shop?.id ?? barbershopId,
+          body: pushMessage,
+          title: "Novo agendamento no HoraAi",
+          type: "new_appointment",
+          url: "/dashboard",
+        },
+      },
+    });
+
+    results.push = pushResult;
+
+    if (!pushResult.ok) {
+      console.warn("[Notifications API] Push nao enviado", {
+        barbershopId: shop?.id ?? barbershopId,
+        ownerUserId,
+        pushResult,
+      });
+    }
+  } catch (error) {
+    console.error("[Notifications API] Erro ao enviar push", {
+      error,
+      barbershopId: shop?.id ?? barbershopId,
+      ownerUserId,
+    });
+    results.pushError = error;
+  }
   }
   }
 
-  console.log("[Email] RESEND_API_KEY exists", Boolean(process.env.RESEND_API_KEY));
-  console.log("[Email] NOTIFICATION_EMAIL", process.env.NOTIFICATION_EMAIL);
   if (!apiKey || !notificationEmail) {
     console.warn("[Notifications API] Resend nao configurado; e-mail ignorado", {
       resend: diagnostics,
@@ -265,7 +286,6 @@ export async function POST(request: Request) {
 
   try {
     const resend = createResendClient(apiKey);
-    console.log("[Email] Tentando enviar email via Resend");
     const { data, error } = await resend.emails.send({
       from: "HoraAi <onboarding@resend.dev>",
       to: notificationEmail,
@@ -298,8 +318,9 @@ export async function POST(request: Request) {
       ].join("\n"),
     });
 
-    console.log("[Email] Resend data", data);
-    console.error("[Email] Resend error", error);
+    if (error) {
+      console.error("[Notifications API] Erro retornado pelo Resend", error);
+    }
 
     results.email = data;
     results.emailError = error;

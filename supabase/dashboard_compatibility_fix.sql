@@ -12,6 +12,9 @@ add column if not exists preferred_frequency_days integer;
 alter table public.clients
 add column if not exists deleted_at timestamptz;
 
+alter table public.appointments
+add column if not exists reminder_sent_at timestamptz;
+
 alter table public.business_hours
 add column if not exists lunch_enabled boolean not null default false;
 
@@ -120,8 +123,21 @@ create index if not exists notifications_user_unread_idx
 on public.notifications (user_id, read)
 where read = false;
 
+create table if not exists public.push_subscriptions (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  fcm_token text not null unique,
+  platform text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists push_subscriptions_user_id_idx
+on public.push_subscriptions (user_id);
+
 alter table public.business_settings enable row level security;
 alter table public.notifications enable row level security;
+alter table public.push_subscriptions enable row level security;
 
 drop policy if exists "business_settings owner read" on public.business_settings;
 create policy "business_settings owner read"
@@ -174,6 +190,27 @@ on public.notifications for update
 using (auth.uid() = user_id)
 with check (auth.uid() = user_id);
 
+drop policy if exists "push_subscriptions owner read" on public.push_subscriptions;
+create policy "push_subscriptions owner read"
+on public.push_subscriptions for select
+using (auth.uid() = user_id);
+
+drop policy if exists "push_subscriptions owner insert" on public.push_subscriptions;
+create policy "push_subscriptions owner insert"
+on public.push_subscriptions for insert
+with check (auth.uid() = user_id);
+
+drop policy if exists "push_subscriptions owner update" on public.push_subscriptions;
+create policy "push_subscriptions owner update"
+on public.push_subscriptions for update
+using (auth.uid() = user_id)
+with check (auth.uid() = user_id);
+
+drop policy if exists "push_subscriptions owner delete" on public.push_subscriptions;
+create policy "push_subscriptions owner delete"
+on public.push_subscriptions for delete
+using (auth.uid() = user_id);
+
 create or replace function public.create_new_appointment_notification(
   p_barbershop_id uuid,
   p_appointment_id uuid,
@@ -225,6 +262,7 @@ grant select on public.business_hours to anon, authenticated;
 grant select on public.booked_slots to anon, authenticated;
 grant select, insert, update, delete on public.business_settings to authenticated;
 grant select, update on public.notifications to authenticated;
+grant select, insert, update, delete on public.push_subscriptions to authenticated;
 grant select, insert, update on public.clients to authenticated;
 grant select, insert, update on public.appointments to authenticated;
 grant insert, update, delete on public.barbershops to authenticated;
