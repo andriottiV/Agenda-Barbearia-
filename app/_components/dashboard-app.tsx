@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { DragEvent, FormEvent, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -1234,14 +1235,19 @@ export function DashboardApp() {
       <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_15%_0%,rgba(214,176,122,0.15),transparent_28%),radial-gradient(circle_at_92%_12%,rgba(255,255,255,0.07),transparent_22%),linear-gradient(135deg,#080808_0%,#101010_50%,#161616_100%)]" />
       <div className="relative grid min-h-screen lg:grid-cols-[260px_1fr]">
         <aside className="hidden border-r border-[var(--premium-border-soft)] bg-black/30 p-4 backdrop-blur-xl lg:sticky lg:top-0 lg:flex lg:h-screen lg:flex-col">
-          <div className="mb-10 flex items-center gap-3 px-2 pt-2">
-            <div className="grid h-12 w-12 place-items-center rounded-full border border-[var(--premium-border-strong)] text-lg font-black text-[var(--premium-gold-300)]">
-              HA
+          <div className="mb-10 grid gap-3 px-2 pt-2">
+            <div className="w-full max-w-[168px]">
+              <Image
+                src="/logoAB.png"
+                alt="HoraAi"
+                width={1400}
+                height={411}
+                priority
+                className="h-auto w-full object-contain"
+                sizes="168px"
+              />
             </div>
             <div>
-              <p className="premium-text-title text-3xl font-bold text-[var(--premium-text-100)]">
-                HoraAi
-              </p>
               <p className="text-xs text-[var(--premium-text-500)]">
                 {barbershop?.name ?? "Minha barbearia"}
               </p>
@@ -1274,8 +1280,18 @@ export function DashboardApp() {
           <header className="relative z-[9000] overflow-visible rounded-[var(--premium-radius-lg)] border border-[var(--premium-border-soft)] bg-black/20 backdrop-blur-xl">
         <div className="flex flex-col gap-4 px-5 py-5 lg:flex-row lg:items-center lg:justify-between">
           <div>
+            <div className="mb-2 w-[112px]">
+              <Image
+                src="/logoAB.png"
+                alt="HoraAi"
+                width={1400}
+                height={411}
+                className="h-auto w-full object-contain"
+                sizes="112px"
+              />
+            </div>
             <p className="text-sm leading-6 text-[var(--premium-text-300)]">
-              HoraAi · {barbershop?.name ?? "Minha barbearia"}
+              {barbershop?.name ?? "Minha barbearia"}
             </p>
             <h1 className="premium-text-title text-4xl font-bold leading-none text-[var(--premium-text-100)]">
               {tab === "agenda" ? "Agenda" : nav.find(([key]) => key === tab)?.[1]}

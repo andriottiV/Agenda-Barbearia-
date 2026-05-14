@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Barlow_Condensed, Inter } from "next/font/google";
 import "./globals.css";
 
@@ -17,10 +17,20 @@ const fontVariables = `${inter.variable} ${barlowCondensed.variable}`;
 
 export const metadata: Metadata = {
   title: {
-    default: "HoraAi - Agenda para barbeiros",
+    default: "HoraAi",
     template: "%s | HoraAi",
   },
-  description: "A agenda mais simples e bonita para barbeiros.",
+  description: "Sua agenda online e rápida",
+  icons: {
+    apple: [{ url: "/IconAB.png?v=20260514", sizes: "180x180", type: "image/png" }],
+    icon: [{ url: "/IconAB.png?v=20260514", sizes: "512x512", type: "image/png" }],
+    shortcut: ["/IconAB.png?v=20260514"],
+  },
+  manifest: "/manifest.webmanifest",
+};
+
+export const viewport: Viewport = {
+  themeColor: "#D4AF37",
 };
 
 export default function RootLayout({

@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { logSupabaseError } from "../lib/supabase-debug";
 import { supabase } from "../lib/supabase";
@@ -73,16 +74,6 @@ function formatDateBR(value: string) {
   }).format(new Date(`${value}T12:00:00`));
 }
 
-function getInitials(name: string) {
-  return name
-    .split(" ")
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0])
-    .join("")
-    .toUpperCase();
-}
-
 function getServiceCategory(service: Service) {
   return (
     (service as Service & { category?: string | null }).category?.trim() ||
@@ -125,17 +116,21 @@ function BarberInfoPanel({
   dayHours?: BusinessHour;
   weekday: number;
 }) {
-  const initials = getInitials(barbershop.name) || "HA";
-
   return (
     <aside className="relative overflow-hidden rounded-[1.35rem] border border-[#D6B07A]/22 bg-[rgba(12,12,12,0.82)] p-4 shadow-[0_24px_90px_rgba(0,0,0,0.48)] backdrop-blur-xl sm:p-5 lg:sticky lg:top-6 lg:p-7">
       <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(145deg,rgba(214,176,122,0.16),transparent_32%),linear-gradient(180deg,rgba(255,255,255,0.055),transparent_36%)]" />
 
       <div className="relative grid gap-4">
-        <div className="flex items-start gap-3 sm:gap-4">
-          <div className="inline-flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-[#D6B07A]/45 bg-black/45 text-lg font-black tracking-[0.08em] text-[#D6B07A] shadow-[0_18px_50px_rgba(214,176,122,0.14)] sm:h-16 sm:w-16 sm:text-xl">
-              {initials}
-          </div>
+        <div className="grid gap-3">
+          <Image
+            src="/logoAB.png"
+            alt="HoraAi"
+            width={1400}
+            height={411}
+            priority
+            className="h-auto w-full max-w-[290px] object-contain sm:max-w-[340px]"
+            sizes="(max-width: 640px) 78vw, 340px"
+          />
           <div className="min-w-0">
             <p className="text-[0.66rem] font-bold uppercase tracking-[0.2em] text-[#D6B07A]/80">
               Agendamento online

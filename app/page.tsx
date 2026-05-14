@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useState } from "react";
 import { PremiumCard } from "../components/ui/premium";
 import { AuthPanel } from "./_components/auth-panel";
@@ -23,11 +24,16 @@ export default function Home() {
       <section className="relative mx-auto grid min-h-dvh w-full max-w-6xl gap-8 px-4 py-6 sm:px-6 lg:grid-cols-[55fr_45fr] lg:items-center lg:gap-10 lg:px-8 lg:py-8">
         <div className="grid content-center gap-7 pt-4 lg:pt-0">
           <div className="max-w-[640px] space-y-5">
-            <div className="inline-flex items-center gap-3 rounded-full border border-[var(--premium-border-soft)] bg-white/[0.04] px-4 py-2 shadow-[var(--premium-shadow-soft)] backdrop-blur-xl">
-              <span className="h-2 w-2 rounded-full bg-[var(--premium-gold-300)] shadow-[0_0_18px_rgba(224,192,141,0.75)]" />
-              <span className="text-xs font-black uppercase tracking-[0.28em] text-[var(--premium-gold-300)]">
-                HoraAi
-              </span>
+            <div className="w-full max-w-[360px] sm:max-w-[440px]">
+              <Image
+                src="/logoAB.png"
+                alt="HoraAi"
+                width={1400}
+                height={411}
+                priority
+                className="h-auto w-full object-contain"
+                sizes="(max-width: 640px) 86vw, 440px"
+              />
             </div>
 
             <div className="space-y-3">
@@ -77,9 +83,13 @@ export default function Home() {
           <PremiumCard className="mx-auto w-full max-w-[420px] p-5 sm:p-6">
             <div className="mb-6 grid gap-5">
               <div className="flex items-center gap-4">
-                <div className="grid h-12 w-12 shrink-0 place-items-center rounded-[var(--premium-radius-md)] border border-[var(--premium-border-strong)] bg-black/40 text-lg font-black text-[var(--premium-gold-300)] shadow-[var(--premium-glow-gold)]">
-                  HA
-                </div>
+                <Image
+                  src="/IconAB.png"
+                  alt="HoraAi"
+                  width={96}
+                  height={96}
+                  className="h-12 w-12 shrink-0 object-contain drop-shadow-[0_0_18px_rgba(214,176,122,0.24)]"
+                />
                 <div className="h-px flex-1 bg-gradient-to-r from-[var(--premium-border-strong)] to-transparent" />
               </div>
 
