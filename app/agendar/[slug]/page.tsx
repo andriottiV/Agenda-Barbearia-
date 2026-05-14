@@ -29,6 +29,14 @@ export async function generateMetadata({
     openGraph: {
       title,
       description,
+      images: [
+        {
+          url: "/HoraAi-AppIconAB.png?v=3",
+          width: 512,
+          height: 512,
+          alt: "HoraAi",
+        },
+      ],
       type: "website",
     },
   };

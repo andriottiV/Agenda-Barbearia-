@@ -26,8 +26,8 @@ if (isConfigured) {
       data: {
         url: data.url || "/dashboard",
       },
-      icon: data.icon || "/IconAB.png?v=20260514",
-      badge: data.badge || "/IconAB.png?v=20260514",
+      icon: data.icon || "/icon-192.png?v=3",
+      badge: data.badge || "/icon-192.png?v=3",
     };
 
     self.registration.showNotification(title, options);

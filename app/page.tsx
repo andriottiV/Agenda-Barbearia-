@@ -84,7 +84,7 @@ export default function Home() {
             <div className="mb-6 grid gap-5">
               <div className="flex items-center gap-4">
                 <Image
-                  src="/IconAB.png"
+                  src="/HoraAi-AppIconAB.png"
                   alt="HoraAi"
                   width={96}
                   height={96}
