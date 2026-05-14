@@ -37,4 +37,12 @@ if (!supabaseUrl || !supabaseAnonKey || !hasValidUrl || !hasValidAnonKey) {
 export const supabase = createClient(
   supabaseUrl ?? "",
   supabaseAnonKey ?? "",
+  {
+    auth: {
+      autoRefreshToken: true,
+      detectSessionInUrl: true,
+      persistSession: true,
+      storageKey: "horaai-auth-session",
+    },
+  },
 );

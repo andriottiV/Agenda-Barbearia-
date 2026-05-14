@@ -2,7 +2,14 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { DragEvent, FormEvent, useEffect, useMemo, useState } from "react";
+import {
+  DragEvent,
+  FormEvent,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useRouter } from "next/navigation";
 import { User } from "@supabase/supabase-js";
 import {
@@ -144,6 +151,7 @@ export function DashboardApp() {
   const [serviceSavingId, setServiceSavingId] = useState<string | null>(null);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const notificationsRef = useRef<HTMLDivElement | null>(null);
   const pushNotifications = usePushNotifications(user);
 
   const publicPath = barbershop ? `/agendar/${barbershop.slug}` : "";
@@ -319,10 +327,22 @@ export function DashboardApp() {
       return;
     }
 
-    setNotifications((data ?? []) as AppNotification[]);
+    const unreadNotificationsById = new Map<string, AppNotification>();
+
+    ((data ?? []) as AppNotification[]).forEach((notification) => {
+      if (!notification.read) {
+        unreadNotificationsById.set(notification.id, notification);
+      }
+    });
+
+    setNotifications(Array.from(unreadNotificationsById.values()));
   }
 
   async function markNotificationAsRead(notificationId: string) {
+    setNotifications((current) =>
+      current.filter((item) => item.id !== notificationId),
+    );
+
     const { error } = await supabase
       .from("notifications")
       .update({ read: true })
@@ -333,14 +353,33 @@ export function DashboardApp() {
         notificationId,
       });
       setNotice(friendlySupabaseError(error));
+      await loadNotifications();
+      return;
+    }
+  }
+
+  async function clearNotifications() {
+    if (!user) return;
+
+    setNotifications([]);
+    setNotificationsOpen(false);
+
+    const { error } = await supabase
+      .from("notifications")
+      .update({ read: true })
+      .eq("user_id", user.id)
+      .eq("read", false);
+
+    if (error) {
+      logSupabaseError("[Dashboard] Erro ao limpar notificacoes", error, {
+        userId: user.id,
+      });
+      setNotice(friendlySupabaseError(error));
+      await loadNotifications(user.id);
       return;
     }
 
-    setNotifications((current) =>
-      current.map((item) =>
-        item.id === notificationId ? { ...item, read: true } : item,
-      ),
-    );
+    setNotice("Notificacoes limpas.");
   }
 
   async function loadServices(barbershopId: string) {
@@ -394,15 +433,68 @@ export function DashboardApp() {
   }
 
   useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => {
-      if (!data.user) {
-        router.push("/");
+    let mounted = true;
+
+    async function restoreSession() {
+      setLoading(true);
+
+      const { data: sessionData, error: sessionError } =
+        await supabase.auth.getSession();
+
+      if (!mounted) return;
+
+      if (sessionError) {
+        console.error("[Dashboard Auth] Erro ao restaurar sessao", sessionError);
+      }
+
+      const sessionUser = sessionData.session?.user ?? null;
+
+      if (sessionUser) {
+        setUser(sessionUser);
+        await load(sessionUser);
         return;
       }
 
-      setUser(data.user);
-      load(data.user);
+      const { data: userData, error: userError } = await supabase.auth.getUser();
+
+      if (!mounted) return;
+
+      if (userError) {
+        console.error("[Dashboard Auth] Erro ao validar usuario", userError);
+      }
+
+      if (!userData.user) {
+        setLoading(false);
+        router.replace("/");
+        return;
+      }
+
+      setUser(userData.user);
+      await load(userData.user);
+    }
+
+    restoreSession();
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((event, session) => {
+      if (!mounted) return;
+
+      if (event === "SIGNED_OUT") {
+        setUser(null);
+        router.replace("/");
+        return;
+      }
+
+      if (session?.user) {
+        setUser(session.user);
+      }
     });
+
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router]);
 
@@ -416,6 +508,30 @@ export function DashboardApp() {
     return () => window.clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
+
+  useEffect(() => {
+    if (!notificationsOpen) return;
+
+    function closeNotificationsOnOutsideClick(event: MouseEvent | TouchEvent) {
+      const target = event.target;
+
+      if (
+        target instanceof Node &&
+        notificationsRef.current &&
+        !notificationsRef.current.contains(target)
+      ) {
+        setNotificationsOpen(false);
+      }
+    }
+
+    document.addEventListener("mousedown", closeNotificationsOnOutsideClick);
+    document.addEventListener("touchstart", closeNotificationsOnOutsideClick);
+
+    return () => {
+      document.removeEventListener("mousedown", closeNotificationsOnOutsideClick);
+      document.removeEventListener("touchstart", closeNotificationsOnOutsideClick);
+    };
+  }, [notificationsOpen]);
 
   const dailySummary = useMemo(() => {
     const valid = appointments.filter((item) => item.status !== "cancelled");
@@ -640,7 +756,7 @@ export function DashboardApp() {
 
   async function signOut() {
     await supabase.auth.signOut();
-    router.push("/");
+    router.replace("/");
   }
 
   async function copyPublicLink() {
@@ -1072,20 +1188,41 @@ export function DashboardApp() {
   }
 
   async function deleteClient(client: Client) {
+    if (!barbershop) return;
+
     setActionLoading(true);
     try {
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from("clients")
         .update({ deleted_at: new Date().toISOString() })
-        .eq("id", client.id);
+        .eq("id", client.id)
+        .eq("barbershop_id", barbershop.id)
+        .is("deleted_at", null)
+        .select("id")
+        .maybeSingle();
 
       logSupabaseError("[Dashboard] Erro ao excluir cliente", error, {
         clientId: client.id,
+        barbershopId: barbershop.id,
       });
-      setNotice(error ? friendlySupabaseError(error) : "Cliente excluido.");
+
+      if (error) {
+        setNotice(friendlySupabaseError(error));
+        return;
+      }
+
+      if (!data) {
+        setNotice("Cliente nao encontrado ou ja excluido.");
+        setDeleteClientCandidate(null);
+        setClients((current) => current.filter((item) => item.id !== client.id));
+        return;
+      }
+
+      setClients((current) => current.filter((item) => item.id !== client.id));
+      setClientSearch("");
       setDeleteClientCandidate(null);
       if (selectedClientId === client.id) setSelectedClientId(null);
-      await load();
+      setNotice("Cliente excluido.");
     } finally {
       setActionLoading(false);
     }
@@ -1298,7 +1435,7 @@ export function DashboardApp() {
             </h1>
           </div>
           <div className="relative z-[9999] flex flex-wrap items-center gap-2 overflow-visible">
-            <div className="relative z-[9999]">
+            <div ref={notificationsRef} className="relative z-[9999]">
               <button
                 type="button"
                 onClick={() => setNotificationsOpen((current) => !current)}
@@ -1337,13 +1474,23 @@ export function DashboardApp() {
                         Ultimos avisos do HoraAi
                       </p>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => loadNotifications()}
-                      className="rounded-[var(--premium-radius-sm)] border border-[var(--premium-border-soft)] px-3 py-2 text-xs font-bold text-[var(--premium-gold-300)]"
-                    >
-                      Atualizar
-                    </button>
+                    <div className="flex shrink-0 items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => loadNotifications()}
+                        className="rounded-[var(--premium-radius-sm)] border border-[var(--premium-border-soft)] px-3 py-2 text-xs font-bold text-[var(--premium-gold-300)]"
+                      >
+                        Atualizar
+                      </button>
+                      <button
+                        type="button"
+                        onClick={clearNotifications}
+                        disabled={!notifications.length}
+                        className="rounded-[var(--premium-radius-sm)] border border-[var(--premium-border-soft)] px-3 py-2 text-xs font-bold text-[var(--premium-text-300)] disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        Limpar
+                      </button>
+                    </div>
                   </div>
 
                   <div className="mt-3 grid max-h-96 gap-2 overflow-y-auto">

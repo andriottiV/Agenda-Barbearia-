@@ -1,9 +1,11 @@
 "use client";
 
 import Image from "next/image";
-import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
 import { PremiumCard } from "../components/ui/premium";
 import { AuthPanel } from "./_components/auth-panel";
+import { supabase } from "./lib/supabase";
 
 const highlights = [
   "Link de agendamento",
@@ -12,7 +14,69 @@ const highlights = [
 ];
 
 export default function Home() {
+  const router = useRouter();
   const [authMode, setAuthMode] = useState<"login" | "signup">("login");
+  const [checkingAuth, setCheckingAuth] = useState(true);
+
+  useEffect(() => {
+    let mounted = true;
+
+    async function restoreSession() {
+      const { data, error } = await supabase.auth.getSession();
+
+      if (!mounted) return;
+
+      if (error) {
+        console.error("[Home Auth] Erro ao restaurar sessao", error);
+        setCheckingAuth(false);
+        return;
+      }
+
+      if (data.session?.user) {
+        router.replace("/dashboard");
+        return;
+      }
+
+      setCheckingAuth(false);
+    }
+
+    restoreSession();
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((event, session) => {
+      if (!mounted) return;
+
+      if (event === "SIGNED_IN" && session?.user) {
+        router.replace("/dashboard");
+      }
+    });
+
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
+  }, [router]);
+
+  if (checkingAuth) {
+    return (
+      <main className="grid min-h-dvh place-items-center bg-[var(--premium-bg-950)] px-6 text-[var(--premium-text-100)]">
+        <div className="grid justify-items-center gap-4">
+          <Image
+            src="/HoraAi-AppIconAB.png"
+            alt="HoraAi"
+            width={96}
+            height={96}
+            priority
+            className="h-20 w-20 object-contain"
+          />
+          <p className="text-sm font-bold uppercase tracking-[0.18em] text-[var(--premium-gold-300)]">
+            Carregando
+          </p>
+        </div>
+      </main>
+    );
+  }
 
   return (
     <main className="relative min-h-dvh overflow-x-hidden bg-[var(--premium-bg-950)] text-[var(--premium-text-100)] lg:overflow-hidden">
