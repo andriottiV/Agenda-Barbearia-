@@ -47,13 +47,7 @@ export function getFirebaseVapidKey() {
 }
 
 export function getFirebaseMessagingServiceWorkerUrl() {
-  const params = new URLSearchParams();
-
-  Object.entries(firebaseConfig).forEach(([key, value]) => {
-    if (value) params.set(key, String(value));
-  });
-
-  return `/firebase-messaging-sw.js?${params.toString()}`;
+  return "/firebase-messaging-sw.js";
 }
 
 export async function getFirebaseMessaging(): Promise<Messaging | null> {

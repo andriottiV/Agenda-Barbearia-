@@ -1,15 +1,13 @@
 importScripts("https://www.gstatic.com/firebasejs/12.13.0/firebase-app-compat.js");
 importScripts("https://www.gstatic.com/firebasejs/12.13.0/firebase-messaging-compat.js");
 
-const params = new URL(self.location.href).searchParams;
 const firebaseConfig = {
-  apiKey: params.get("apiKey"),
-  authDomain: params.get("authDomain"),
-  projectId: params.get("projectId"),
-  messagingSenderId: params.get("messagingSenderId"),
-  appId: params.get("appId"),
+  "apiKey": "",
+  "authDomain": "",
+  "projectId": "",
+  "messagingSenderId": "",
+  "appId": ""
 };
-
 const isConfigured = Object.values(firebaseConfig).every(Boolean);
 
 if (isConfigured) {

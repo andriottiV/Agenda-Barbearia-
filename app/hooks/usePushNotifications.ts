@@ -13,42 +13,50 @@ import {
 import { supabase } from "../lib/supabase";
 import { friendlySupabaseError } from "../lib/supabase-errors";
 
-type PushPermission = NotificationPermission | "unsupported" | "unconfigured";
+type BrowserPermission = NotificationPermission | "unsupported";
 type PushStatus =
-  | PushPermission
   | "checking"
+  | "default"
+  | "denied"
+  | "error"
+  | "granted"
   | "requesting"
-  | "saving"
   | "saved"
-  | "error";
+  | "saving"
+  | "unconfigured"
+  | "unsupported";
 
 type EnablePushResult = {
   ok: boolean;
   message: string;
 };
 
-function getInitialPermission(): PushPermission {
-  if (typeof window === "undefined") {
-    return "default";
-  }
+const BLOCKED_INSTRUCTION =
+  "Clique no cadeado ao lado do endereço do site e permita notificações.";
 
-  if (!("Notification" in window)) {
+function devLog(message: string, payload?: unknown) {
+  if (process.env.NODE_ENV !== "production") {
+    console.info(message, payload ?? "");
+  }
+}
+
+function devError(message: string, error: unknown) {
+  if (process.env.NODE_ENV !== "production") {
+    console.error(message, error);
+  }
+}
+
+function readBrowserPermission(): BrowserPermission {
+  if (typeof window === "undefined" || !("Notification" in window)) {
     return "unsupported";
-  }
-
-  if (!isFirebaseMessagingConfigured()) {
-    return "unconfigured";
   }
 
   return Notification.permission;
 }
 
 function getPlatform() {
-  if (typeof navigator === "undefined") {
-    return "web";
-  }
+  if (typeof navigator === "undefined") return "web";
 
-  const platform = navigator.platform || "web";
   const standaloneNavigator = navigator as Navigator & {
     standalone?: boolean;
   };
@@ -56,7 +64,7 @@ function getPlatform() {
     window.matchMedia?.("(display-mode: standalone)").matches ||
     Boolean(standaloneNavigator.standalone);
 
-  return standalone ? `${platform} pwa` : platform;
+  return `${navigator.platform || "web"}${standalone ? " pwa" : ""}`;
 }
 
 function isSecurePushContext() {
@@ -69,17 +77,30 @@ function isSecurePushContext() {
   );
 }
 
-function permissionBlockedMessage() {
-  return "Permissão bloqueada. Libere as notificações nas configurações do navegador e tente novamente.";
+function blockedMessage() {
+  return "Notificações bloqueadas no navegador.";
 }
 
 export function usePushNotifications(user: User | null) {
-  const [status, setStatus] = useState<PushStatus>(getInitialPermission);
+  const [currentPermission, setCurrentPermission] =
+    useState<BrowserPermission>(readBrowserPermission);
+  const [status, setStatus] = useState<PushStatus>(() => {
+    if (!isFirebaseMessagingConfigured()) return "unconfigured";
+    const permission = readBrowserPermission();
+    return permission === "unsupported" ? "unsupported" : permission;
+  });
   const [message, setMessage] = useState("");
   const [tokenRegistered, setTokenRegistered] = useState(false);
   const checkingRef = useRef(false);
 
   const diagnostics = useMemo(() => getFirebaseClientDiagnostics(), []);
+
+  const refreshPermissionState = useCallback(() => {
+    const permission = readBrowserPermission();
+    setCurrentPermission(permission);
+    devLog("[Push Notifications] Notification.permission", permission);
+    return permission;
+  }, []);
 
   const saveToken = useCallback(
     async (token: string): Promise<EnablePushResult> => {
@@ -89,27 +110,38 @@ export function usePushNotifications(user: User | null) {
         return { ok: false, message: nextMessage };
       }
 
-      const now = new Date().toISOString();
-      const { error } = await supabase.from("push_subscriptions").upsert(
-        {
-          user_id: user.id,
-          fcm_token: token,
-          platform: getPlatform(),
-          updated_at: now,
-        },
-        { onConflict: "fcm_token" },
-      );
+      const { data, error } = await supabase
+        .from("push_subscriptions")
+        .upsert(
+          {
+            user_id: user.id,
+            fcm_token: token,
+            platform: getPlatform(),
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: "fcm_token" },
+        )
+        .select("id, user_id, platform, updated_at")
+        .maybeSingle();
+
+      devLog("[Push Notifications] Resposta ao salvar token no Supabase", {
+        data,
+        error,
+      });
 
       if (error) {
         const nextMessage = friendlySupabaseError(error);
-        console.error("[Push Notifications] Erro ao salvar token FCM", error);
+        devError("[Push Notifications] Erro ao salvar token FCM", error);
         setStatus("error");
+        setTokenRegistered(false);
         setMessage(nextMessage);
         return { ok: false, message: nextMessage };
       }
 
+      setCurrentPermission("granted");
       setTokenRegistered(true);
       setStatus("saved");
+
       const nextMessage = "Notificações ativadas neste dispositivo.";
       setMessage(nextMessage);
       return { ok: true, message: nextMessage };
@@ -118,14 +150,30 @@ export function usePushNotifications(user: User | null) {
   );
 
   const registerAndSaveToken = useCallback(async (): Promise<EnablePushResult> => {
-    if (typeof window === "undefined" || !("Notification" in window)) {
+    const permission = refreshPermissionState();
+
+    if (permission === "unsupported") {
       const nextMessage = "Este navegador não suporta notificações push.";
       setStatus("unsupported");
       setMessage(nextMessage);
       return { ok: false, message: nextMessage };
     }
 
-    if (!("serviceWorker" in navigator)) {
+    if (permission !== "granted") {
+      const nextMessage =
+        permission === "denied"
+          ? blockedMessage()
+          : "Notificações ainda não foram permitidas.";
+      setStatus(permission);
+      setTokenRegistered(false);
+      setMessage(nextMessage);
+      return { ok: false, message: nextMessage };
+    }
+
+    const hasServiceWorker = "serviceWorker" in navigator;
+    devLog("[Push Notifications] serviceWorker existe", hasServiceWorker);
+
+    if (!hasServiceWorker) {
       const nextMessage = "Este navegador não suporta service worker.";
       setStatus("unsupported");
       setMessage(nextMessage);
@@ -140,15 +188,47 @@ export function usePushNotifications(user: User | null) {
       return { ok: false, message: nextMessage };
     }
 
+    if (!isFirebaseMessagingConfigured()) {
+      const nextMessage =
+        diagnostics.hasVapidKey
+          ? "Configuração pública do Firebase incompleta."
+          : "Chave Web Push não configurada.";
+      setStatus("unconfigured");
+      setMessage(nextMessage);
+      devLog("[Push Notifications] Diagnóstico Firebase", diagnostics);
+      return { ok: false, message: nextMessage };
+    }
+
+    devLog("[Push Notifications] VAPID KEY existe", diagnostics.hasVapidKey);
+
+    const swResponse = await fetch("/firebase-messaging-sw.js", {
+      cache: "no-store",
+    }).catch((error) => {
+      devError("[Push Notifications] Erro ao acessar service worker", error);
+      return null;
+    });
+
+    if (!swResponse?.ok) {
+      const nextMessage = "Arquivo de notificações não encontrado no servidor.";
+      setStatus("error");
+      setMessage(nextMessage);
+      devError("[Push Notifications] Service worker inacessível", {
+        status: swResponse?.status ?? null,
+      });
+      return { ok: false, message: nextMessage };
+    }
+
     const registration = await navigator.serviceWorker.register(
       getFirebaseMessagingServiceWorkerUrl(),
-      {
-        scope: "/",
-        updateViaCache: "none",
-      },
+      { scope: "/", updateViaCache: "none" },
     );
 
+    devLog("[Push Notifications] Service worker registrado", {
+      scope: registration.scope,
+    });
+
     const messaging = await getFirebaseMessaging();
+    devLog("[Push Notifications] Firebase app/messaging inicializado", Boolean(messaging));
 
     if (!messaging) {
       const nextMessage = "Firebase Messaging não está disponível neste navegador.";
@@ -157,40 +237,103 @@ export function usePushNotifications(user: User | null) {
       return { ok: false, message: nextMessage };
     }
 
-    const token = await getToken(messaging, {
-      vapidKey: getFirebaseVapidKey(),
-      serviceWorkerRegistration: registration,
-    });
+    let token = "";
+
+    try {
+      token = await getToken(messaging, {
+        vapidKey: getFirebaseVapidKey(),
+        serviceWorkerRegistration: registration,
+      });
+      devLog("[Push Notifications] Resultado do getToken()", {
+        hasToken: Boolean(token),
+        tokenLength: token.length,
+      });
+    } catch (error) {
+      const nextMessage =
+        "Permissão liberada, mas não foi possível registrar o dispositivo.";
+      devError("[Push Notifications] Erro ao gerar token FCM", error);
+      setStatus("error");
+      setTokenRegistered(false);
+      setMessage(nextMessage);
+      return { ok: false, message: nextMessage };
+    }
 
     if (!token) {
-      const nextMessage = "Não foi possível gerar o token de notificação.";
+      const nextMessage =
+        "Permissão liberada, mas não foi possível registrar o dispositivo.";
+      devError("[Push Notifications] Token FCM vazio", new Error(nextMessage));
       setStatus("error");
+      setTokenRegistered(false);
       setMessage(nextMessage);
       return { ok: false, message: nextMessage };
     }
 
     return saveToken(token);
-  }, [saveToken]);
+  }, [diagnostics, refreshPermissionState, saveToken]);
+
+  const verifyPushPermission = useCallback(async (): Promise<EnablePushResult> => {
+    const permission = refreshPermissionState();
+
+    if (permission === "denied") {
+      const nextMessage = blockedMessage();
+      setStatus("denied");
+      setTokenRegistered(false);
+      setMessage(nextMessage);
+      return { ok: false, message: nextMessage };
+    }
+
+    if (permission === "default") {
+      const nextMessage = "Notificações ainda não foram permitidas.";
+      setStatus("default");
+      setTokenRegistered(false);
+      setMessage(nextMessage);
+      return { ok: false, message: nextMessage };
+    }
+
+    setStatus("saving");
+    setMessage("Salvando dispositivo para receber notificações...");
+    return registerAndSaveToken();
+  }, [refreshPermissionState, registerAndSaveToken]);
+
+  useEffect(() => {
+    function syncPermission() {
+      const permission = refreshPermissionState();
+
+      if (permission === "denied") {
+        setStatus("denied");
+        setTokenRegistered(false);
+        setMessage(blockedMessage());
+      } else if (permission === "default") {
+        setStatus("default");
+        setTokenRegistered(false);
+      }
+    }
+
+    window.addEventListener("focus", syncPermission);
+    document.addEventListener("visibilitychange", syncPermission);
+
+    return () => {
+      window.removeEventListener("focus", syncPermission);
+      document.removeEventListener("visibilitychange", syncPermission);
+    };
+  }, [refreshPermissionState]);
 
   useEffect(() => {
     if (!user || checkingRef.current) return;
-    if (typeof window === "undefined" || !("Notification" in window)) return;
 
     async function restorePushState() {
       await Promise.resolve();
 
-      if (!isFirebaseMessagingConfigured()) {
-        setStatus("unconfigured");
-        setTokenRegistered(false);
-        return;
-      }
+      const permission = refreshPermissionState();
 
-      if (Notification.permission !== "granted") {
-        setStatus(Notification.permission);
-        setTokenRegistered(false);
-        if (Notification.permission === "denied") {
-          setMessage(permissionBlockedMessage());
+      if (permission !== "granted") {
+        if (permission === "denied") {
+          setStatus("denied");
+          setMessage(blockedMessage());
+        } else {
+          setStatus(permission);
         }
+        setTokenRegistered(false);
         return;
       }
 
@@ -200,7 +343,7 @@ export function usePushNotifications(user: User | null) {
 
       registerAndSaveToken()
         .catch((error) => {
-          console.error("[Push Notifications] Erro ao restaurar token FCM", error);
+          devError("[Push Notifications] Erro ao restaurar token FCM", error);
           setTokenRegistered(false);
           setStatus("error");
           setMessage(
@@ -215,7 +358,7 @@ export function usePushNotifications(user: User | null) {
     }
 
     restorePushState();
-  }, [registerAndSaveToken, user]);
+  }, [refreshPermissionState, registerAndSaveToken, user]);
 
   const enablePushNotifications = useCallback(async (): Promise<EnablePushResult> => {
     if (!user) {
@@ -224,85 +367,93 @@ export function usePushNotifications(user: User | null) {
       return { ok: false, message: nextMessage };
     }
 
-    if (typeof window === "undefined" || !("Notification" in window)) {
+    const permission = refreshPermissionState();
+
+    if (permission === "unsupported") {
       const nextMessage = "Este navegador não suporta notificações push.";
       setStatus("unsupported");
       setMessage(nextMessage);
       return { ok: false, message: nextMessage };
     }
 
-    if (Notification.permission === "denied") {
-      const nextMessage = permissionBlockedMessage();
+    if (permission === "denied") {
+      const nextMessage = blockedMessage();
       setStatus("denied");
+      setTokenRegistered(false);
       setMessage(nextMessage);
       return { ok: false, message: nextMessage };
     }
 
     if (!isFirebaseMessagingConfigured()) {
       const nextMessage =
-        "Configure as variáveis públicas do Firebase antes de ativar notificações.";
+        diagnostics.hasVapidKey
+          ? "Configuração pública do Firebase incompleta."
+          : "Chave Web Push não configurada.";
       setStatus("unconfigured");
       setMessage(nextMessage);
       return { ok: false, message: nextMessage };
     }
 
-    setStatus("requesting");
-    setMessage("Aguardando permissão do navegador...");
+    if (permission === "default") {
+      setStatus("requesting");
+      setMessage("Aguardando permissão do navegador...");
 
-    const permission = await Notification.requestPermission();
-    setStatus(permission);
+      const requestedPermission = await Notification.requestPermission();
+      devLog(
+        "[Push Notifications] Permissão após requestPermission",
+        requestedPermission,
+      );
+      setCurrentPermission(requestedPermission);
 
-    if (permission !== "granted") {
-      const nextMessage =
-        permission === "denied"
-          ? permissionBlockedMessage()
-          : "Permissão de notificação não foi concedida.";
-      setMessage(nextMessage);
-      return { ok: false, message: nextMessage };
+      if (requestedPermission !== "granted") {
+        const nextMessage =
+          requestedPermission === "denied"
+            ? blockedMessage()
+            : "Permissão de notificação não foi concedida.";
+        setStatus(requestedPermission);
+        setTokenRegistered(false);
+        setMessage(nextMessage);
+        return { ok: false, message: nextMessage };
+      }
     }
 
     setStatus("saving");
     setMessage("Salvando dispositivo para receber notificações...");
-
-    try {
-      return await registerAndSaveToken();
-    } catch (error) {
-      console.error("[Push Notifications] Erro ao ativar notificações", error);
-      const nextMessage =
-        error instanceof Error
-          ? error.message
-          : "Não foi possível ativar notificações.";
-
-      setStatus("error");
-      setMessage(nextMessage);
-      return { ok: false, message: nextMessage };
-    }
-  }, [registerAndSaveToken, user]);
+    return registerAndSaveToken();
+  }, [diagnostics.hasVapidKey, refreshPermissionState, registerAndSaveToken, user]);
 
   const buttonLabel = useMemo(() => {
     if (status === "checking") return "Verificando...";
     if (status === "requesting") return "Aguardando permissão...";
     if (status === "saving") return "Ativando...";
-    if (status === "saved" || tokenRegistered) return "Notificações ativadas";
-    if (status === "denied") return "Permissão bloqueada";
+    if (currentPermission === "denied") return "Bloqueadas no navegador";
+    if (currentPermission === "granted" && tokenRegistered) {
+      return "Notificações ativadas";
+    }
+    if (currentPermission === "granted" && !tokenRegistered) {
+      return "Concluir ativação";
+    }
     return "Ativar notificações";
-  }, [status, tokenRegistered]);
+  }, [currentPermission, status, tokenRegistered]);
+
+  const isBlocked = currentPermission === "denied";
+  const canClickPrimary =
+    !["checking", "requesting", "saving", "saved", "unsupported", "unconfigured"].includes(
+      status,
+    ) && !isBlocked;
 
   return {
+    blockedInstruction: BLOCKED_INSTRUCTION,
     buttonLabel,
     diagnostics,
     enablePushNotifications,
+    isBlocked,
     isConfigured: diagnostics.isConfigured,
-    isDisabled:
-      status === "checking" ||
-      status === "requesting" ||
-      status === "saving" ||
-      status === "saved" ||
-      status === "unsupported" ||
-      status === "unconfigured",
+    isDisabled: !canClickPrimary,
     isLoading:
       status === "checking" || status === "requesting" || status === "saving",
     message,
     status,
+    verifyPushPermission,
   };
 }

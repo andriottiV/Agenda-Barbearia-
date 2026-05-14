@@ -1538,19 +1538,37 @@ export function DashboardApp() {
             </div>
             {barbershop ? (
               <>
-                <button
-                  type="button"
-                  onClick={async () => {
-                    const result =
-                      await pushNotifications.enablePushNotifications();
-                    setNotice(result.message);
-                  }}
-                  disabled={pushNotifications.isDisabled}
-                  title={pushNotifications.message || undefined}
-                  className="rounded-[var(--premium-radius-md)] border border-[var(--premium-border-soft)] bg-black/25 px-4 py-3 text-sm font-bold text-[var(--premium-text-200)] transition hover:border-[var(--premium-border-strong)] disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {pushNotifications.buttonLabel}
-                </button>
+                <div className="grid max-w-full gap-2 sm:max-w-[18rem]">
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const result =
+                        await pushNotifications.enablePushNotifications();
+                      setNotice(result.message);
+                    }}
+                    disabled={pushNotifications.isDisabled}
+                    title={pushNotifications.message || undefined}
+                    className="rounded-[var(--premium-radius-md)] border border-[var(--premium-border-soft)] bg-black/25 px-4 py-3 text-sm font-bold text-[var(--premium-text-200)] transition hover:border-[var(--premium-border-strong)] disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {pushNotifications.buttonLabel}
+                  </button>
+                  {pushNotifications.isBlocked ? (
+                    <div className="rounded-[var(--premium-radius-md)] border border-[var(--premium-border-soft)] bg-black/20 p-3 text-xs leading-5 text-[var(--premium-text-300)]">
+                      <p>{pushNotifications.blockedInstruction}</p>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          const result =
+                            await pushNotifications.verifyPushPermission();
+                          setNotice(result.message);
+                        }}
+                        className="mt-2 font-bold text-[var(--premium-gold-300)] transition hover:text-[var(--premium-gold-200)]"
+                      >
+                        Ja liberei, verificar novamente
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
                 <button
                   type="button"
                   onClick={copyPublicLink}
