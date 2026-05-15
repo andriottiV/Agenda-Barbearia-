@@ -402,49 +402,6 @@ export function usePushNotifications(user: User | null) {
     return registerAndSaveSubscription();
   }, [refreshPermissionState, registerAndSaveSubscription, user]);
 
-  const sendTestNotification = useCallback(async (): Promise<EnablePushResult> => {
-    if (!user) {
-      const nextMessage = "Entre na sua conta para enviar um teste.";
-      setMessage(nextMessage);
-      return { ok: false, message: nextMessage };
-    }
-
-    const token = await authToken();
-
-    if (!token) {
-      const nextMessage = "Sua sessao expirou. Entre novamente para testar.";
-      setMessage(nextMessage);
-      return { ok: false, message: nextMessage };
-    }
-
-    const response = await fetch("/api/notifications/send", {
-      body: JSON.stringify({
-        body: "Notificacoes push estao funcionando neste dispositivo.",
-        link: "/dashboard",
-        title: "Teste HoraAi",
-      }),
-      headers: {
-        authorization: `Bearer ${token}`,
-        "content-type": "application/json",
-      },
-      method: "POST",
-    });
-    const result = (await response.json().catch(() => null)) as
-      | { error?: string; success?: boolean }
-      | null;
-
-    if (!response.ok || !result?.success) {
-      const nextMessage =
-        result?.error || "Nao foi possivel enviar notificacao de teste.";
-      setMessage(nextMessage);
-      return { ok: false, message: nextMessage };
-    }
-
-    const nextMessage = "Notificacao de teste enviada.";
-    setMessage(nextMessage);
-    return { ok: true, message: nextMessage };
-  }, [user]);
-
   const buttonLabel = useMemo(() => {
     if (status === "checking") return "Verificando...";
     if (status === "requesting") return "Aguardando permissao...";
@@ -476,8 +433,6 @@ export function usePushNotifications(user: User | null) {
     isLoading:
       status === "checking" || status === "requesting" || status === "saving",
     message,
-    sendTestNotification,
-    showTestButton: currentPermission === "granted" && subscriptionRegistered,
     status,
     verifyPushPermission,
   };

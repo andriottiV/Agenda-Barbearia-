@@ -147,3 +147,90 @@
       transparent 9px
     );
 }
+
+@keyframes premium-toast-in {
+  from {
+    opacity: 0;
+    transform: translate3d(0, -0.45rem, 0) scale(0.98);
+  }
+
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+.landing-reveal {
+  animation: landing-reveal-in 520ms ease-out both;
+}
+
+.landing-mockup {
+  animation: landing-mockup-float 7s ease-in-out infinite;
+}
+
+@keyframes landing-reveal-in {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 1rem, 0);
+  }
+
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes landing-mockup-float {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) rotateX(0deg);
+  }
+
+  50% {
+    transform: translate3d(0, -0.45rem, 0) rotateX(0.5deg);
+  }
+}
+
+.premium-toast {
+  animation: premium-toast-in 180ms ease-out both;
+  will-change: opacity, transform;
+}
+
+@media (max-width: 640px) {
+  .premium-card,
+  .premium-surface,
+  .premium-list-item {
+    box-shadow: 0 16px 44px rgba(0, 0, 0, 0.34);
+    backdrop-filter: none;
+  }
+
+  .premium-control {
+    font-size: 16px;
+    transition:
+      border-color 120ms ease,
+      box-shadow 120ms ease;
+  }
+
+  .premium-control:focus {
+    box-shadow: 0 0 0 2px rgba(214, 176, 122, 0.14);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .landing-reveal,
+  .landing-mockup,
+  .premium-toast,
+  .premium-control,
+  button,
+  a {
+    animation: none;
+    transition-duration: 1ms;
+  }
+}
+
+@media (max-width: 640px) {
+  .landing-reveal,
+  .landing-mockup {
+    animation: none;
+  }
+}

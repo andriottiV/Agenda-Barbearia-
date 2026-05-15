@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, memo, useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { PremiumButton, PremiumInput } from "../../components/ui/premium";
 import { getSupabaseAuthDiagnostics, supabase } from "../lib/supabase";
@@ -52,7 +52,7 @@ function isFetchConnectionError(error: unknown) {
   );
 }
 
-export function AuthPanel({
+function AuthPanelComponent({
   mode: controlledMode,
   onModeChange,
 }: {
@@ -65,14 +65,14 @@ export function AuthPanel({
   const [loading, setLoading] = useState(false);
   const mode = controlledMode ?? uncontrolledMode;
 
-  function setMode(nextMode: AuthMode) {
+  const setMode = useCallback((nextMode: AuthMode) => {
     setMessage("");
     if (onModeChange) {
       onModeChange(nextMode);
       return;
     }
     setUncontrolledMode(nextMode);
-  }
+  }, [onModeChange]);
 
   useEffect(() => {
     async function checkSupabaseConnection() {
@@ -124,7 +124,7 @@ export function AuthPanel({
     checkSupabaseConnection();
   }, []);
 
-  async function submit(event: FormEvent<HTMLFormElement>) {
+  const submit = useCallback(async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setLoading(true);
     setMessage("");
@@ -203,7 +203,7 @@ export function AuthPanel({
     } finally {
       setLoading(false);
     }
-  }
+  }, [mode, router]);
 
   return (
     <form onSubmit={submit} className="grid gap-4">
@@ -243,3 +243,5 @@ export function AuthPanel({
     </form>
   );
 }
+
+export const AuthPanel = memo(AuthPanelComponent);

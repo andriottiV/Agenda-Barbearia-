@@ -533,6 +533,16 @@ export function DashboardApp() {
     };
   }, [notificationsOpen]);
 
+  useEffect(() => {
+    if (!notice) return;
+
+    const timeout = window.setTimeout(() => {
+      setNotice("");
+    }, 2600);
+
+    return () => window.clearTimeout(timeout);
+  }, [notice]);
+
   const dailySummary = useMemo(() => {
     const valid = appointments.filter((item) => item.status !== "cancelled");
     const cancelled = appointments.filter((item) => item.status === "cancelled");
@@ -1551,19 +1561,6 @@ export function DashboardApp() {
                   >
                     {pushNotifications.buttonLabel}
                   </button>
-                  {pushNotifications.showTestButton ? (
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        const result =
-                          await pushNotifications.sendTestNotification();
-                        setNotice(result.message);
-                      }}
-                      className="rounded-[var(--premium-radius-md)] border border-[var(--premium-border-soft)] bg-black/20 px-4 py-3 text-sm font-bold text-[var(--premium-gold-300)] transition hover:border-[var(--premium-border-strong)]"
-                    >
-                      Enviar teste
-                    </button>
-                  ) : null}
                   {pushNotifications.isBlocked ? (
                     <div className="rounded-[var(--premium-radius-md)] border border-[var(--premium-border-soft)] bg-black/20 p-3 text-xs leading-5 text-[var(--premium-text-300)]">
                       <p>{pushNotifications.blockedInstruction}</p>
@@ -1624,7 +1621,11 @@ export function DashboardApp() {
         </nav>
 
         {notice ? (
-          <p className="fixed right-4 top-4 z-40 max-w-sm rounded-[var(--premium-radius-md)] border border-[var(--premium-border-strong)] bg-[var(--premium-bg-glass-strong)] px-4 py-3 text-sm text-[var(--premium-text-100)] shadow-[var(--premium-shadow-soft)] backdrop-blur-xl">
+          <p
+            role="status"
+            aria-live="polite"
+            className="premium-toast pointer-events-none fixed left-3 right-3 top-[max(0.75rem,env(safe-area-inset-top))] z-[2147483647] mx-auto max-w-[min(24rem,calc(100vw-1.5rem))] rounded-[var(--premium-radius-md)] border border-[var(--premium-border-strong)] bg-[rgba(18,18,18,0.96)] px-4 py-3 text-sm leading-5 text-[var(--premium-text-100)] shadow-[0_18px_50px_rgba(0,0,0,0.42)] sm:left-auto sm:right-4 sm:top-4 sm:mx-0"
+          >
             {notice}
           </p>
         ) : null}
