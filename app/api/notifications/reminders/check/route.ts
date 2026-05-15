@@ -2,7 +2,7 @@ import {
   createServerSupabaseAdminClient,
   getServerSupabaseDiagnostics,
 } from "../../../../lib/supabase-server";
-import { sendPushToUser } from "../../../../lib/firebase-admin";
+import { sendPushToUser } from "../../../../lib/web-push-server";
 
 export const runtime = "nodejs";
 

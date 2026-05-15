@@ -1,6 +1,6 @@
 import { createResendClient, getResendConfig } from "./resend-server";
 import { currency, whatsappLink } from "./schedule";
-import { sendPushToUser } from "./firebase-admin";
+import { sendPushToUser } from "./web-push-server";
 import {
   createServerSupabaseAdminClient,
   getServerSupabaseDiagnostics,

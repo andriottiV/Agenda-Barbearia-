@@ -3,17 +3,22 @@ import {
   createServerSupabaseClient,
   getServerSupabaseDiagnostics,
 } from "../../../lib/supabase-server";
-import {
-  getWebPushDiagnostics,
-  sendPushToUser,
-} from "../../../lib/web-push-server";
+import { getWebPushDiagnostics } from "../../../lib/web-push-server";
 
 export const runtime = "nodejs";
 
-type SendPushBody = {
-  body?: unknown;
-  link?: unknown;
-  title?: unknown;
+type PushSubscriptionBody = {
+  endpoint?: unknown;
+  expirationTime?: unknown;
+  keys?: {
+    auth?: unknown;
+    p256dh?: unknown;
+  };
+};
+
+type SubscribeBody = {
+  platform?: unknown;
+  subscription?: PushSubscriptionBody;
 };
 
 function textField(value: unknown) {
@@ -55,36 +60,45 @@ export async function POST(request: Request) {
   const adminSupabase = createServerSupabaseAdminClient();
 
   if (!adminSupabase) {
-    console.error("[Push Send] Supabase admin nao configurado", {
-      supabase: getServerSupabaseDiagnostics(),
-    });
-
     return Response.json(
       {
         success: false,
         error: "SUPABASE_SERVICE_ROLE_KEY ausente.",
         diagnostics: {
-          webPush: getWebPushDiagnostics(),
           supabase: getServerSupabaseDiagnostics(),
+          webPush: getWebPushDiagnostics(),
         },
       },
       { status: 500 },
     );
   }
 
-  let body: SendPushBody = {};
+  let body: SubscribeBody = {};
 
   try {
-    body = (await request.json()) as SendPushBody;
+    body = (await request.json()) as SubscribeBody;
   } catch {
-    body = {};
+    return Response.json(
+      { success: false, error: "JSON invalido." },
+      { status: 400 },
+    );
   }
 
-  const title = textField(body.title) || "Teste HoraAi";
-  const message =
-    textField(body.body) ||
-    "Notificacoes push estao funcionando neste dispositivo.";
-  const link = textField(body.link) || "/dashboard";
+  const subscription = body.subscription;
+  const endpoint = textField(subscription?.endpoint);
+  const p256dh = textField(subscription?.keys?.p256dh);
+  const auth = textField(subscription?.keys?.auth);
+  const platform = textField(body.platform) || "web";
+
+  if (!endpoint || !p256dh || !auth) {
+    return Response.json(
+      {
+        success: false,
+        error: "Subscription Web Push incompleta.",
+      },
+      { status: 400 },
+    );
+  }
 
   const { data: shops, error: shopError } = await adminSupabase
     .from("barbershops")
@@ -103,52 +117,52 @@ export async function POST(request: Request) {
     return Response.json(
       {
         success: false,
-        error: "Apenas administradores de barbearia podem enviar teste push.",
+        error: "Crie ou acesse sua barbearia antes de ativar notificacoes.",
       },
       { status: 403 },
     );
   }
 
-  try {
-    const result = await sendPushToUser({
-      supabase: adminSupabase,
-      userId: user.id,
-      payload: {
-        title,
-        body: message,
-        link,
-        data: {
-          title,
-          body: message,
-          url: link,
-          type: "test",
-        },
-      },
-    });
+  const serializedSubscription = {
+    endpoint,
+    expirationTime:
+      typeof subscription?.expirationTime === "number"
+        ? subscription.expirationTime
+        : null,
+    keys: {
+      auth,
+      p256dh,
+    },
+  };
 
-    return Response.json(
+  const { data, error } = await adminSupabase
+    .from("push_subscriptions")
+    .upsert(
       {
-        success: result.ok,
-        ...result,
+        auth_key: auth,
+        endpoint,
+        fcm_token: endpoint,
+        p256dh,
+        platform,
+        subscription: serializedSubscription,
+        updated_at: new Date().toISOString(),
+        user_id: user.id,
       },
-      { status: result.ok ? 200 : 400 },
-    );
-  } catch (error) {
-    console.error("[Push Send] Erro inesperado", error);
+      { onConflict: "endpoint" },
+    )
+    .select("id, user_id, endpoint, platform, updated_at")
+    .maybeSingle();
 
+  if (error) {
     return Response.json(
-      {
-        success: false,
-        error:
-          error instanceof Error
-            ? error.message
-            : "Nao foi possivel enviar notificacao push.",
-        diagnostics: {
-          webPush: getWebPushDiagnostics(),
-          supabase: getServerSupabaseDiagnostics(),
-        },
-      },
+      { success: false, error: error.message },
       { status: 500 },
     );
   }
+
+  return Response.json({
+    success: true,
+    message: "Notificacoes ativadas com sucesso",
+    subscription: data,
+  });
 }

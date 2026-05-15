@@ -127,13 +127,32 @@ create table if not exists public.push_subscriptions (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
   fcm_token text not null unique,
+  endpoint text,
+  p256dh text,
+  auth_key text,
+  subscription jsonb,
   platform text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
 
+alter table public.push_subscriptions
+add column if not exists endpoint text;
+
+alter table public.push_subscriptions
+add column if not exists p256dh text;
+
+alter table public.push_subscriptions
+add column if not exists auth_key text;
+
+alter table public.push_subscriptions
+add column if not exists subscription jsonb;
+
 create index if not exists push_subscriptions_user_id_idx
 on public.push_subscriptions (user_id);
+
+create unique index if not exists push_subscriptions_endpoint_idx
+on public.push_subscriptions (endpoint);
 
 alter table public.business_settings enable row level security;
 alter table public.notifications enable row level security;
