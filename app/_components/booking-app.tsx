@@ -22,6 +22,7 @@ type BookedSlot = {
   barbershop_id: string;
   appointment_date: string;
   appointment_time: string;
+  service_duration_minutes: number | null;
   status: "scheduled" | "confirmed" | "done";
 };
 
@@ -74,11 +75,52 @@ function formatDateBR(value: string) {
   }).format(new Date(`${value}T12:00:00`));
 }
 
-function getServiceCategory(service: Service) {
-  return (
-    (service as Service & { category?: string | null }).category?.trim() ||
-    "Servico"
+function getServiceIcon(service: Service) {
+  const name = service.name.toLowerCase();
+
+  if (name.includes("barba")) return "B";
+  if (name.includes("sobrancelha")) return "S";
+  if (name.includes("combo") || name.includes("pacote")) return "C";
+  if (name.includes("pigment") || name.includes("luzes")) return "P";
+
+  return "N";
+}
+
+function addDaysIso(baseIso: string, days: number) {
+  const dateValue = new Date(`${baseIso}T12:00:00`);
+  dateValue.setDate(dateValue.getDate() + days);
+  return dateValue.toISOString().slice(0, 10);
+}
+
+function getDateOptions(selectedDate: string) {
+  const today = todayIso();
+  const selectedOffset = Math.max(
+    0,
+    Math.round(
+      (new Date(`${selectedDate}T12:00:00`).getTime() -
+        new Date(`${today}T12:00:00`).getTime()) /
+        86400000,
+    ),
   );
+  const startOffset = selectedOffset > 6 ? selectedOffset - 2 : 0;
+
+  return Array.from({ length: 7 }, (_, index) =>
+    addDaysIso(today, startOffset + index),
+  );
+}
+
+function shortDateParts(value: string) {
+  const dateValue = new Date(`${value}T12:00:00`);
+
+  return {
+    weekday: new Intl.DateTimeFormat("pt-BR", { weekday: "short" })
+      .format(dateValue)
+      .replace(".", ""),
+    day: new Intl.DateTimeFormat("pt-BR", { day: "2-digit" }).format(dateValue),
+    month: new Intl.DateTimeFormat("pt-BR", { month: "short" })
+      .format(dateValue)
+      .replace(".", ""),
+  };
 }
 
 function StepTitle({
@@ -91,15 +133,15 @@ function StepTitle({
   description?: string;
 }) {
   return (
-    <div className="space-y-2">
-      <p className="inline-flex rounded-full border border-[#D6B07A]/24 bg-[#D6B07A]/10 px-3 py-1 text-[0.68rem] font-bold uppercase tracking-[0.18em] text-[#D6B07A]">
+    <div className="space-y-1.5">
+      <p className="inline-flex rounded-full border border-[#F2B84B]/25 bg-[#F2B84B]/10 px-3 py-1 text-[0.64rem] font-black uppercase tracking-[0.16em] text-[#F2B84B]">
         {step}
       </p>
-      <h2 className="text-lg font-semibold leading-tight text-[#F5F1EB] sm:text-2xl">
+      <h2 className="text-xl font-semibold leading-tight text-white sm:text-[1.7rem]">
         {title}
       </h2>
       {description ? (
-        <p className="max-w-2xl text-sm leading-6 text-[#B8AEA3]">
+        <p className="max-w-2xl text-sm leading-6 text-[#B9B9B9]">
           {description}
         </p>
       ) : null}
@@ -117,46 +159,20 @@ function BarberInfoPanel({
   weekday: number;
 }) {
   return (
-    <aside className="relative overflow-hidden rounded-[1.35rem] border border-[#D6B07A]/22 bg-[rgba(12,12,12,0.82)] p-4 shadow-[0_24px_90px_rgba(0,0,0,0.48)] backdrop-blur-xl sm:p-5 lg:sticky lg:top-6 lg:p-7">
-      <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(145deg,rgba(214,176,122,0.16),transparent_32%),linear-gradient(180deg,rgba(255,255,255,0.055),transparent_36%)]" />
+    <aside className="relative overflow-hidden rounded-[1.6rem] border border-white/10 bg-white/[0.04] p-4 shadow-[0_24px_80px_rgba(0,0,0,0.42)] backdrop-blur-2xl sm:p-5 lg:sticky lg:top-6">
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_20%_0%,rgba(242,184,75,0.18),transparent_34%),linear-gradient(145deg,rgba(255,255,255,0.07),transparent_44%)]" />
 
-      <div className="relative grid gap-4">
-        <div className="grid gap-3">
+      <div className="relative grid gap-5">
+        <div className="flex items-center justify-between gap-3">
           <Image
             src="/logoAB.png"
             alt="HoraAi"
             width={1400}
             height={411}
             priority
-            className="h-auto w-full max-w-[290px] object-contain sm:max-w-[340px]"
-            sizes="(max-width: 640px) 78vw, 340px"
+            className="h-auto w-32 object-contain"
+            sizes="128px"
           />
-          <div className="min-w-0">
-            <p className="text-[0.66rem] font-bold uppercase tracking-[0.2em] text-[#D6B07A]/80">
-              Agendamento online
-            </p>
-            <h1 className="premium-text-title mt-1 break-words text-3xl font-semibold leading-none text-[#F5F1EB] sm:text-5xl lg:text-6xl">
-              {barbershop.name}
-            </h1>
-          </div>
-        </div>
-
-        <div className="space-y-3 rounded-2xl border border-[#D6B07A]/18 bg-black/35 p-3 shadow-[0_18px_60px_rgba(0,0,0,0.32)] sm:p-4">
-          <InfoRow label="Endereco" value={barbershop.address ?? "Endereco nao informado"} />
-          <InfoRow
-            label={weekdays[weekday]}
-            value={
-              dayHours?.active
-                ? `${dayHours.opens_at.slice(0, 5)} as ${dayHours.closes_at.slice(0, 5)}`
-                : "Fechado nesta data"
-            }
-          />
-          {dayHours?.active && dayHours.lunch_enabled ? (
-            <p className="rounded-xl border border-[#D6B07A]/20 bg-[#D6B07A]/10 px-3 py-2 text-sm leading-5 text-[#E0C08D]">
-              Pausa: {dayHours.lunch_starts_at?.slice(0, 5)} as{" "}
-              {dayHours.lunch_ends_at?.slice(0, 5)}
-            </p>
-          ) : null}
           {barbershop.phone ? (
             <a
               href={whatsappLink(
@@ -165,17 +181,73 @@ function BarberInfoPanel({
               )}
               target="_blank"
               rel="noreferrer"
-              className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-[#20B15A] px-4 py-2.5 text-sm font-bold text-white shadow-[0_14px_34px_rgba(32,177,90,0.2)] transition hover:bg-[#24c463]"
+              className="inline-flex min-h-10 shrink-0 items-center justify-center rounded-full border border-[#20B15A]/30 bg-[#20B15A]/15 px-3 text-[0.68rem] font-black uppercase tracking-[0.1em] text-[#A8F0C1] transition hover:bg-[#20B15A] hover:text-white"
             >
-              <span className="h-2.5 w-2.5 rounded-full bg-white" />
-              Falar no WhatsApp
+              Fale conosco
             </a>
           ) : null}
         </div>
 
-        <p className="max-w-md text-sm leading-6 text-[#CFC6BA]">
-          Escolha o servico, reserve um horario livre e confirme em poucos segundos.
-        </p>
+        <div className="min-w-0 space-y-4">
+          <div>
+            <h1 className="premium-text-title break-words text-3xl font-semibold leading-none text-white sm:text-4xl lg:text-[2.55rem]">
+              {barbershop.name}
+            </h1>
+            <p className="mt-3 text-sm font-black uppercase tracking-[0.14em] text-[#F2B84B]">
+              Novandri Origine - Arte e beleza
+            </p>
+            <p className="mt-3 text-sm leading-6 text-[#B9B9B9]">
+              Atendimento com hora marcada, ambiente moderno e uma experiencia
+              pensada para ser simples do inicio ao fim.
+            </p>
+          </div>
+        </div>
+
+        <div className="grid gap-2 sm:grid-cols-3 lg:grid-cols-1">
+          {["Hora marcada", "Profissionais qualificados", "Ambiente exclusivo"].map(
+            (item) => (
+              <div
+                key={item}
+                className="rounded-2xl border border-white/10 bg-black/25 p-3 text-xs font-bold leading-5 text-white"
+              >
+                <span className="mb-2 block h-1 w-7 rounded-full bg-[#F2B84B]" />
+                {item}
+              </div>
+            ),
+          )}
+        </div>
+
+        <div className="grid gap-3">
+          <div className="rounded-2xl border border-[#F2B84B]/20 bg-[#F2B84B]/10 p-3">
+            <p className="text-[0.66rem] font-black uppercase tracking-[0.18em] text-[#F2B84B]/80">
+              Avaliacao
+            </p>
+            <div className="mt-1 flex items-center justify-between gap-2">
+              <p className="text-2xl font-black text-white">4,9</p>
+              <p className="text-sm tracking-[0.12em] text-[#F2B84B]">*****</p>
+            </div>
+          </div>
+          <div className="grid gap-3 rounded-2xl border border-white/10 bg-black/25 p-3">
+            <InfoRow
+              label="Endereco"
+              value={barbershop.address ?? "Endereco nao informado"}
+            />
+            <InfoRow
+              label={weekdays[weekday]}
+              value={
+                dayHours?.active
+                  ? `${dayHours.opens_at.slice(0, 5)} as ${dayHours.closes_at.slice(0, 5)}`
+                  : "Fechado nesta data"
+              }
+            />
+            {dayHours?.active && dayHours.lunch_enabled ? (
+              <p className="rounded-xl border border-[#F2B84B]/20 bg-[#F2B84B]/10 px-3 py-2 text-xs leading-5 text-[#F5D08B]">
+                Pausa: {dayHours.lunch_starts_at?.slice(0, 5)} as{" "}
+                {dayHours.lunch_ends_at?.slice(0, 5)}
+              </p>
+            ) : null}
+          </div>
+        </div>
       </div>
     </aside>
   );
@@ -183,11 +255,11 @@ function BarberInfoPanel({
 
 function InfoRow({ label, value }: { label: string; value: string }) {
   return (
-    <div className="grid gap-0.5 border-b border-white/10 pb-3 last:border-b-0 last:pb-0">
-      <span className="text-[0.68rem] font-bold uppercase tracking-[0.2em] text-[#D6B07A]/70">
+    <div className="grid gap-1 border-b border-white/10 pb-3 last:border-b-0 last:pb-0">
+      <span className="text-[0.64rem] font-black uppercase tracking-[0.16em] text-[#F2B84B]/70">
         {label}
       </span>
-      <span className="text-sm leading-5 text-[#F5F1EB]">{value}</span>
+      <span className="text-sm leading-5 text-white">{value}</span>
     </div>
   );
 }
@@ -205,38 +277,41 @@ function PublicServiceCard({
     <button
       type="button"
       onClick={onSelect}
-      className={`group min-h-32 rounded-2xl border p-4 text-left shadow-[0_20px_60px_rgba(0,0,0,0.18)] transition duration-200 sm:p-5 ${
+      className={`group relative flex min-h-[132px] overflow-hidden rounded-[1.25rem] border p-4 text-left shadow-[0_18px_55px_rgba(0,0,0,0.22)] transition duration-200 ${
         selected
-          ? "border-[#D6B07A] bg-[rgba(214,176,122,0.12)] text-[#F5F1EB] shadow-[0_22px_70px_rgba(214,176,122,0.18)]"
-          : "border-[#D6B07A]/18 bg-[rgba(18,18,18,0.84)] text-[#F5F1EB] hover:-translate-y-0.5 hover:border-[#D6B07A]/50 hover:bg-white/[0.06]"
+          ? "border-[#F2B84B]/80 bg-[#F2B84B]/12 text-white shadow-[0_20px_65px_rgba(242,184,75,0.16)]"
+          : "border-white/10 bg-white/[0.04] text-white hover:-translate-y-0.5 hover:border-[#F2B84B]/50 hover:bg-white/[0.07]"
       }`}
     >
-      <div className="flex items-start justify-between gap-4">
-        <div className="space-y-2">
-          <span className="inline-flex rounded-full border border-[#D6B07A]/25 px-3 py-1 text-[0.64rem] font-bold uppercase tracking-[0.18em] text-[#D6B07A]/80">
-            {getServiceCategory(service)}
+      <span className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/30 to-transparent" />
+      <div className="grid w-full gap-3">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <span className="grid h-10 w-10 place-items-center rounded-2xl border border-[#F2B84B]/25 bg-[#F2B84B]/12 text-sm font-black text-[#F2B84B]">
+              {getServiceIcon(service)}
+            </span>
+            <h3 className="mt-3 line-clamp-2 text-base font-semibold leading-snug sm:text-[1.05rem]">
+              {service.name}
+            </h3>
+          </div>
+          <span
+            className={`grid h-7 w-7 shrink-0 place-items-center rounded-full border text-[0.62rem] font-black ${
+              selected
+                ? "border-[#F2B84B] bg-[#F2B84B] text-black"
+                : "border-white/15 text-transparent group-hover:border-[#F2B84B]/45"
+            }`}
+          >
+            OK
           </span>
-          <h3 className="text-lg font-semibold leading-snug sm:text-xl">
-            {service.name}
-          </h3>
         </div>
-        <span
-          className={`grid h-8 w-8 shrink-0 place-items-center rounded-full border text-[0.62rem] font-black ${
-            selected
-              ? "border-[#D6B07A] bg-[#D6B07A] text-black"
-              : "border-white/15 text-transparent group-hover:border-[#D6B07A]/45"
-          }`}
-        >
-          OK
-        </span>
-      </div>
-      <div className="mt-5 flex items-end justify-between gap-3">
-        <p className="text-2xl font-bold text-[#D6B07A]">
-          {currency(Number(service.price))}
-        </p>
-        <p className="rounded-full border border-white/10 bg-black/25 px-3 py-1 text-sm font-semibold text-[#B8AEA3]">
-          {service.duration_minutes} min
-        </p>
+        <div className="mt-auto flex items-end justify-between gap-3">
+          <p className="text-xl font-black text-[#F2B84B]">
+            {currency(Number(service.price))}
+          </p>
+          <p className="rounded-full border border-white/10 bg-black/25 px-3 py-1 text-xs font-bold text-[#B9B9B9]">
+            {service.duration_minutes} min
+          </p>
+        </div>
       </div>
     </button>
   );
@@ -253,11 +328,11 @@ function TimeSlotGrid({
 }) {
   if (!slots.length) {
     return (
-      <div className="premium-empty-state py-7 text-left">
-        <p className="font-semibold text-[#F5F1EB]">
+      <div className="rounded-[1.35rem] border border-white/10 bg-black/25 p-6 text-left">
+        <p className="font-semibold text-white">
           Nenhum horario disponivel para esta data.
         </p>
-        <p className="mt-2 text-sm leading-6 text-[#B8AEA3]">
+        <p className="mt-2 text-sm leading-6 text-[#B8B8B8]">
           Tente escolher outro dia ou fale com a barbearia pelo WhatsApp.
         </p>
       </div>
@@ -271,15 +346,68 @@ function TimeSlotGrid({
           key={slot}
           type="button"
           onClick={() => onSelect(slot)}
-          className={`min-h-12 rounded-xl border px-3 py-3 text-base font-bold transition ${
+          className={`min-h-11 rounded-xl border px-3 py-2 text-sm font-black transition ${
             selectedTime === slot
-              ? "border-[#D6B07A] bg-[#D6B07A] text-[#080808] shadow-[0_16px_36px_rgba(214,176,122,0.2)]"
-              : "border-[#D6B07A]/18 bg-[rgba(12,12,12,0.84)] text-[#F5F1EB] hover:border-[#D6B07A]/50 hover:bg-white/[0.06]"
+              ? "border-[#F2B84B] bg-[#F2B84B] text-[#080808] shadow-[0_16px_34px_rgba(242,184,75,0.18)]"
+              : "border-white/10 bg-white/[0.04] text-white hover:border-[#F2B84B]/50 hover:bg-white/[0.075]"
           }`}
         >
           {slot}
         </button>
       ))}
+    </div>
+  );
+}
+
+function DateSelector({
+  date,
+  onSelect,
+}: {
+  date: string;
+  onSelect: (date: string) => void;
+}) {
+  const options = getDateOptions(date);
+  const monthLabel = new Intl.DateTimeFormat("pt-BR", {
+    month: "long",
+    year: "numeric",
+  }).format(new Date(`${date}T12:00:00`));
+
+  return (
+    <div className="rounded-[1.25rem] border border-white/10 bg-black/25 p-3">
+      <p className="mb-3 text-center text-sm font-black uppercase tracking-[0.12em] text-white">
+        {monthLabel}
+      </p>
+      <div className="grid grid-cols-4 gap-2 sm:grid-cols-7 lg:grid-cols-4 xl:grid-cols-7">
+        {options.map((item) => {
+          const parts = shortDateParts(item);
+          const selected = item === date;
+
+          return (
+            <button
+              key={item}
+              type="button"
+              onClick={() => onSelect(item)}
+              className={`relative min-h-[72px] rounded-2xl border p-2 text-center transition ${
+                selected
+                  ? "border-[#F2B84B] bg-[#F2B84B] text-black shadow-[0_16px_34px_rgba(242,184,75,0.18)]"
+                  : "border-white/10 bg-white/[0.04] text-white hover:border-[#F2B84B]/45 hover:bg-white/[0.075]"
+              }`}
+            >
+              <span className="block text-[0.6rem] font-black uppercase tracking-[0.1em]">
+                {parts.weekday}
+              </span>
+              <span className="mt-1 block text-xl font-black leading-none">
+                {parts.day}
+              </span>
+              <span
+                className={`mx-auto mt-2 block h-1.5 w-1.5 rounded-full ${
+                  selected ? "bg-black/65" : "bg-[#F2B84B]"
+                }`}
+              />
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -296,15 +424,14 @@ function BookingSummary({
   customerName: string;
 }) {
   return (
-    <div className="rounded-2xl border border-[#D6B07A]/25 bg-[rgba(214,176,122,0.08)] p-4 sm:p-5">
-      <StepTitle step="Resumo" title="Confira antes de confirmar" />
-      <div className="mt-5 grid gap-3 text-sm sm:grid-cols-2">
+    <div className="h-full rounded-[1.4rem] border border-[#F2B84B]/22 bg-[#F2B84B]/10 p-4 shadow-[0_20px_60px_rgba(0,0,0,0.2)]">
+      <StepTitle step="Resumo" title="Seu agendamento" />
+      <div className="mt-4 grid gap-2.5 text-sm">
         <SummaryItem label="Servico" value={service?.name ?? "Escolha um servico"} />
         <SummaryItem
           label="Duracao"
           value={service ? `${service.duration_minutes} min` : "--"}
         />
-        <SummaryItem label="Preco" value={service ? currency(Number(service.price)) : "--"} />
         <SummaryItem
           label="Data e horario"
           value={startTime ? `${formatDateBR(date)} as ${startTime}` : formatDateBR(date)}
@@ -313,6 +440,14 @@ function BookingSummary({
           label="Cliente"
           value={customerName.trim() || "Informe seu nome"}
         />
+        <div className="rounded-2xl border border-[#F2B84B]/25 bg-black/30 p-4">
+          <p className="text-[0.66rem] font-black uppercase tracking-[0.16em] text-[#B9B9B9]">
+            Total
+          </p>
+          <p className="mt-1 text-3xl font-black text-[#F2B84B]">
+            {service ? currency(Number(service.price)) : "--"}
+          </p>
+        </div>
       </div>
     </div>
   );
@@ -320,12 +455,36 @@ function BookingSummary({
 
 function SummaryItem({ label, value }: { label: string; value: string }) {
   return (
-    <div>
-      <p className="text-[0.68rem] font-semibold uppercase tracking-[0.2em] text-[#B8AEA3]">
+    <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
+      <p className="text-[0.64rem] font-black uppercase tracking-[0.16em] text-[#B9B9B9]">
         {label}
       </p>
-      <p className="mt-1 font-semibold text-[#F5F1EB]">{value}</p>
+      <p className="mt-1 font-semibold leading-5 text-white">{value}</p>
     </div>
+  );
+}
+
+function TrustFooter({ barbershop }: { barbershop: Barbershop }) {
+  return (
+    <footer className="grid gap-4">
+      <div className="grid gap-2 sm:grid-cols-3">
+        {["Confirmacao imediata", "Lembretes automaticos", "Atendimento exclusivo"].map(
+          (item) => (
+            <div
+              key={item}
+              className="rounded-2xl border border-white/10 bg-white/[0.035] p-3"
+            >
+              <span className="mb-2 block h-1 w-7 rounded-full bg-[#F2B84B]" />
+              <p className="text-xs font-bold text-white sm:text-sm">{item}</p>
+            </div>
+          ),
+        )}
+      </div>
+      <div className="flex flex-col gap-2 border-t border-white/10 pt-4 text-xs text-[#8F8F8F] sm:flex-row sm:items-center sm:justify-between">
+        <p>HoraAi - Agendamento online</p>
+        <p>{barbershop.address ?? barbershop.phone ?? barbershop.name}</p>
+      </div>
+    </footer>
   );
 }
 
@@ -360,9 +519,9 @@ export function BookingApp({ slug }: { slug: string }) {
   const slots = useMemo(() => {
     if (!service || !dayHours || !dayHours.active) return [];
     const occupiedSlots = bookedSlots.map((item) => item.appointment_time.slice(0, 5));
-    const occupiedRanges: OccupiedRange[] = occupiedSlots.map((startTime) => ({
-      startTime,
-      durationMinutes: service.duration_minutes,
+    const occupiedRanges: OccupiedRange[] = bookedSlots.map((item) => ({
+      startTime: item.appointment_time.slice(0, 5),
+      durationMinutes: item.service_duration_minutes ?? 30,
     }));
 
     return makeSlots(
@@ -483,7 +642,9 @@ export function BookingApp({ slug }: { slug: string }) {
 
       const { data, error: slotsError } = await supabase
         .from("booked_slots")
-        .select("id, barbershop_id, appointment_date, appointment_time, status")
+        .select(
+          "id, barbershop_id, appointment_date, appointment_time, service_duration_minutes, status",
+        )
         .eq("barbershop_id", barbershop.id)
         .eq("appointment_date", date);
 
@@ -548,7 +709,7 @@ export function BookingApp({ slug }: { slug: string }) {
         startTime,
         service.duration_minutes,
         item.appointment_time.slice(0, 5),
-        service.duration_minutes,
+        item.service_duration_minutes ?? 30,
       ),
     );
 
@@ -663,7 +824,9 @@ export function BookingApp({ slug }: { slug: string }) {
   async function reloadAppointments(barbershopId: string, selectedDate: string) {
     const { data, error: slotsError } = await supabase
       .from("booked_slots")
-      .select("id, barbershop_id, appointment_date, appointment_time, status")
+      .select(
+        "id, barbershop_id, appointment_date, appointment_time, service_duration_minutes, status",
+      )
       .eq("barbershop_id", barbershopId)
       .eq("appointment_date", selectedDate);
 
@@ -723,31 +886,31 @@ export function BookingApp({ slug }: { slug: string }) {
     : "";
 
   return (
-    <main className="relative min-h-screen overflow-x-hidden bg-[#080808] text-[#F5F1EB]">
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_18%_0%,rgba(214,176,122,0.14),transparent_26%),linear-gradient(135deg,#080808_0%,#101010_54%,#151515_100%)]" />
-      <div className="pointer-events-none absolute inset-0 opacity-[0.11] [background:linear-gradient(90deg,rgba(255,255,255,0.07)_1px,transparent_1px),linear-gradient(0deg,rgba(255,255,255,0.045)_1px,transparent_1px)] [background-size:44px_44px]" />
+    <main className="relative min-h-screen overflow-x-hidden bg-[#050505] text-white">
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_12%_8%,rgba(242,184,75,0.13),transparent_28%),radial-gradient(circle_at_88%_16%,rgba(255,255,255,0.06),transparent_24%),linear-gradient(135deg,#050505_0%,#0B0B0B_48%,#111111_100%)]" />
+      <div className="pointer-events-none absolute inset-0 opacity-[0.08] [background:linear-gradient(90deg,rgba(255,255,255,0.08)_1px,transparent_1px),linear-gradient(0deg,rgba(255,255,255,0.06)_1px,transparent_1px)] [background-size:42px_42px]" />
 
-      <div className="relative mx-auto grid min-h-screen max-w-6xl gap-4 px-3 py-3 sm:px-6 sm:py-6 lg:grid-cols-[0.82fr_1.18fr] lg:px-8">
+      <div className="relative mx-auto grid min-h-screen max-w-[1180px] gap-5 px-3 py-3 sm:px-5 sm:py-5 lg:grid-cols-[280px_minmax(0,1fr)] lg:gap-7">
         <BarberInfoPanel
           barbershop={barbershop}
           dayHours={dayHours}
           weekday={weekday}
         />
 
-        <section className="rounded-[1.35rem] border border-[#D6B07A]/18 bg-[rgba(14,14,14,0.86)] p-4 shadow-[0_24px_90px_rgba(0,0,0,0.46)] backdrop-blur-xl sm:p-7 lg:p-8">
+        <section className="rounded-[1.6rem] border border-white/10 bg-white/[0.035] p-3 shadow-[0_24px_90px_rgba(0,0,0,0.42)] backdrop-blur-2xl sm:p-5">
           {success ? (
             <div className="flex min-h-full flex-col justify-center gap-4">
-              <div className="rounded-[1.4rem] border border-[#D6B07A]/25 bg-black/30 p-6 text-center shadow-[0_26px_80px_rgba(0,0,0,0.28)] sm:p-10">
-                <div className="mx-auto grid h-16 w-16 place-items-center rounded-full border border-[#D6B07A]/45 bg-[#D6B07A] text-sm font-black text-[#080808]">
+              <div className="rounded-[1.75rem] border border-[#F2B84B]/25 bg-black/30 p-6 text-center shadow-[0_26px_80px_rgba(0,0,0,0.28)] sm:p-10">
+                <div className="mx-auto grid h-16 w-16 place-items-center rounded-full border border-[#F2B84B]/45 bg-[#F2B84B] text-sm font-black text-[#080808]">
                   OK
                 </div>
-                <p className="mt-5 text-[0.68rem] font-bold uppercase tracking-[0.24em] text-[#D6B07A]/75">
+                <p className="mt-5 text-[0.68rem] font-black uppercase tracking-[0.24em] text-[#F2B84B]/80">
                   Tudo certo
                 </p>
-                <h2 className="mt-3 text-3xl font-semibold leading-tight text-[#F5F1EB] sm:text-4xl">
+                <h2 className="mt-3 text-3xl font-semibold leading-tight text-white sm:text-4xl">
                   Horario confirmado
                 </h2>
-                <div className="mx-auto mt-5 grid max-w-md gap-3 rounded-2xl border border-white/10 bg-white/[0.04] p-4 text-left">
+                <div className="mx-auto mt-5 grid max-w-md gap-3 rounded-3xl border border-white/10 bg-white/[0.04] p-4 text-left">
                   <SummaryItem label="Barbearia" value={barbershop.name} />
                   <SummaryItem label="Cliente" value={success.customerName} />
                   <SummaryItem label="Servico" value={success.serviceName} />
@@ -764,12 +927,12 @@ export function BookingApp({ slug }: { slug: string }) {
                     href={whatsappLink(barbershop.phone, successWhatsAppMessage)}
                     target="_blank"
                     rel="noreferrer"
-                    className="inline-flex min-h-14 items-center justify-center rounded-2xl bg-[#20B15A] px-5 py-4 text-sm font-bold text-white shadow-[0_18px_45px_rgba(32,177,90,0.22)] transition hover:bg-[#24c463]"
+                    className="inline-flex min-h-14 items-center justify-center rounded-2xl bg-[#20B15A] px-5 py-4 text-sm font-black text-white shadow-[0_18px_45px_rgba(32,177,90,0.22)] transition hover:bg-[#24c463]"
                   >
                     Enviar no WhatsApp
                   </a>
                 ) : (
-                  <p className="rounded-2xl border border-[#D6B07A]/20 bg-[#D6B07A]/10 p-4 text-sm leading-6 text-[#E0C08D]">
+                  <p className="rounded-2xl border border-[#F2B84B]/20 bg-[#F2B84B]/10 p-4 text-sm leading-6 text-[#F2CF91]">
                     A barbearia ainda nao cadastrou um WhatsApp. Seu horario ja foi
                     registrado no painel.
                   </p>
@@ -777,29 +940,29 @@ export function BookingApp({ slug }: { slug: string }) {
                 <button
                   type="button"
                   onClick={() => setSuccess(null)}
-                  className="inline-flex min-h-14 items-center justify-center rounded-2xl border border-[#D6B07A]/40 bg-[#D6B07A] px-5 py-4 text-sm font-black text-[#080808] shadow-[0_22px_60px_rgba(214,176,122,0.22)] transition hover:bg-[#e4caa5]"
+                  className="inline-flex min-h-14 items-center justify-center rounded-2xl border border-[#F2B84B]/40 bg-[#F2B84B] px-5 py-4 text-sm font-black text-[#080808] shadow-[0_22px_60px_rgba(242,184,75,0.22)] transition hover:bg-[#ffd06b]"
                 >
                   Fazer outro agendamento
                 </button>
               </div>
             </div>
           ) : (
-            <form onSubmit={book} className="grid gap-6">
-              <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-4 sm:p-5">
-                <p className="text-xs font-bold uppercase tracking-[0.24em] text-[#D6B07A]/75">
-                  Agendamento
+            <form onSubmit={book} className="grid gap-4">
+              <div className="rounded-[1.35rem] border border-white/10 bg-black/25 p-4 sm:p-5">
+                <p className="text-xs font-black uppercase tracking-[0.2em] text-[#F2B84B]/80">
+                  1. Agendamento
                 </p>
-                <h2 className="premium-text-title mt-2 text-4xl font-semibold leading-none text-[#F5F1EB] sm:text-5xl">
+                <h2 className="premium-text-title mt-2 text-3xl font-semibold leading-none text-white sm:text-5xl">
                   Escolha seu horario
                 </h2>
-                <p className="mt-3 max-w-2xl text-sm leading-6 text-[#B8AEA3] sm:text-base">
-                  Reserve seu atendimento em poucos passos.
+                <p className="mt-3 max-w-2xl text-sm leading-6 text-[#B9B9B9] sm:text-base">
+                  Selecione servico, data e horario em uma unica pagina.
                 </p>
               </div>
 
-              <section className="grid gap-3 rounded-2xl border border-white/10 bg-white/[0.025] p-4 sm:p-5">
-                <StepTitle step="1. Escolha o servico" title="Servicos disponiveis" />
-                <div className="grid gap-3 sm:grid-cols-2">
+              <section className="grid gap-3 rounded-[1.35rem] border border-white/10 bg-white/[0.025] p-3 sm:p-4">
+                <StepTitle step="1. Servico" title="Escolha seu atendimento" />
+                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                   {services.map((item) => (
                     <PublicServiceCard
                       key={item.id}
@@ -814,114 +977,133 @@ export function BookingApp({ slug }: { slug: string }) {
                   ))}
                 </div>
                 {!services.length ? (
-                  <div className="premium-empty-state text-left">
-                    <p className="font-semibold text-[#F5F1EB]">
+                  <div className="rounded-[1.35rem] border border-white/10 bg-black/25 p-6 text-left">
+                    <p className="font-semibold text-white">
                       Nenhum servico publicado.
                     </p>
-                    <p className="mt-2 text-sm text-[#B8AEA3]">
-                    Esta barbearia ainda nao publicou servicos.
+                    <p className="mt-2 text-sm text-[#B8B8B8]">
+                      Esta barbearia ainda nao publicou servicos.
                     </p>
                   </div>
                 ) : null}
               </section>
 
-              <section className="grid gap-5 rounded-2xl border border-white/10 bg-white/[0.025] p-4 sm:p-5">
+              <section className="grid gap-4 rounded-[1.35rem] border border-white/10 bg-white/[0.025] p-3 sm:p-4">
                 <StepTitle
-                  step="2. Escolha a data"
-                  title="Data do atendimento"
+                  step="2. Data e horario"
+                  title="Quando voce quer vir?"
                   description="Os horarios ocupados somem automaticamente."
                 />
-                <label className="grid content-start gap-2">
-                  <span className="premium-label">Data</span>
-                  <span className="rounded-2xl border border-[#D6B07A]/18 bg-white/[0.04] p-4 text-sm font-medium leading-5 text-[#B8AEA3]">
-                    {formatDateBR(date)}
-                  </span>
-                  <input
-                    type="date"
-                    min={todayIso()}
-                    value={date}
-                    onChange={(event) => {
-                      setDate(event.target.value);
-                      setError("");
-                    }}
-                    className="premium-control [color-scheme:dark]"
-                  />
-                </label>
-              </section>
-
-              <section className="grid gap-4 rounded-2xl border border-white/10 bg-white/[0.025] p-4 sm:p-5">
-                <StepTitle step="3. Escolha o horario" title="Horarios disponiveis" />
-                {slotsLoading ? (
-                  <div className="premium-empty-state py-7 text-left">
-                    <p className="font-semibold text-[#F5F1EB]">
-                      Atualizando horarios...
-                    </p>
-                    <p className="mt-2 text-sm leading-6 text-[#B8AEA3]">
-                      Estamos verificando a agenda desta data.
-                    </p>
+                <div className="grid gap-4 lg:grid-cols-[0.45fr_0.55fr]">
+                  <div className="grid gap-3">
+                    <DateSelector
+                      date={date}
+                      onSelect={(value) => {
+                        setDate(value);
+                        setError("");
+                      }}
+                    />
+                    <label className="grid content-start gap-2">
+                      <span className="text-[0.66rem] font-black uppercase tracking-[0.16em] text-[#F2B84B]/75">
+                        Escolher outra data
+                      </span>
+                      <input
+                        type="date"
+                        min={todayIso()}
+                        value={date}
+                        onChange={(event) => {
+                          setDate(event.target.value);
+                          setError("");
+                        }}
+                        className="min-h-12 rounded-2xl border border-white/10 bg-white/[0.045] px-4 text-sm font-semibold text-white outline-none [color-scheme:dark] placeholder:text-[#777] focus:border-[#F2B84B] focus:shadow-[0_0_0_3px_rgba(242,184,75,0.14)]"
+                      />
+                    </label>
                   </div>
-                ) : (
-                  <TimeSlotGrid
-                    slots={slots}
-                    selectedTime={startTime}
-                    onSelect={(slot) => {
-                      setStartTime(slot);
-                      setError("");
-                    }}
-                  />
-                )}
-              </section>
-
-              <section className="grid gap-4 rounded-2xl border border-white/10 bg-white/[0.025] p-4 sm:p-5">
-                <StepTitle step="4. Seus dados" title="Como podemos te chamar?" />
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <label className="grid gap-2">
-                    <span className="premium-label">Nome</span>
-                    <input
-                      name="name"
-                      placeholder="Seu nome"
-                      required
-                      minLength={2}
-                      maxLength={80}
-                      value={customerName}
-                      onChange={(event) => setCustomerName(event.target.value)}
-                      className="premium-control"
-                    />
-                  </label>
-                  <label className="grid gap-2">
-                    <span className="premium-label">WhatsApp</span>
-                    <input
-                      name="phone"
-                      placeholder="WhatsApp com DDD"
-                      required
-                      inputMode="tel"
-                      autoComplete="tel"
-                      minLength={10}
-                      maxLength={20}
-                      value={customerPhone}
-                      onChange={(event) => setCustomerPhone(event.target.value)}
-                      className="premium-control"
-                    />
-                  </label>
+                  <div className="rounded-[1.25rem] border border-white/10 bg-black/25 p-3">
+                    <p className="mb-3 text-sm font-black uppercase tracking-[0.12em] text-white">
+                      Horarios disponiveis
+                    </p>
+                    {slotsLoading ? (
+                      <div className="rounded-[1.1rem] border border-white/10 bg-white/[0.035] p-5 text-left">
+                        <p className="font-semibold text-white">
+                          Atualizando horarios...
+                        </p>
+                        <p className="mt-2 text-sm leading-6 text-[#B9B9B9]">
+                          Estamos verificando a agenda desta data.
+                        </p>
+                      </div>
+                    ) : (
+                      <TimeSlotGrid
+                        slots={slots}
+                        selectedTime={startTime}
+                        onSelect={(slot) => {
+                          setStartTime(slot);
+                          setError("");
+                        }}
+                      />
+                    )}
+                  </div>
                 </div>
-                <label className="grid gap-2">
-                  <span className="premium-label">Observacoes opcionais</span>
-                  <textarea
-                    name="notes"
-                    placeholder="Algum detalhe para a barbearia?"
-                    value={notes}
-                    onChange={(event) => setNotes(event.target.value)}
-                    className="premium-control min-h-28 resize-y py-4"
-                  />
-                </label>
               </section>
 
-              <BookingSummary
-                service={service}
-                date={date}
-                startTime={startTime}
-                customerName={customerName}
-              />
+              <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_300px]">
+                <section className="grid gap-4 rounded-[1.35rem] border border-white/10 bg-white/[0.025] p-3 sm:p-4">
+                  <StepTitle step="3. Seus dados" title="Como podemos te chamar?" />
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <label className="grid gap-2">
+                      <span className="text-[0.66rem] font-black uppercase tracking-[0.16em] text-[#F2B84B]/75">
+                        Nome
+                      </span>
+                      <input
+                        name="name"
+                        placeholder="Seu nome"
+                        required
+                        minLength={2}
+                        maxLength={80}
+                        value={customerName}
+                        onChange={(event) => setCustomerName(event.target.value)}
+                        className="min-h-12 rounded-2xl border border-white/10 bg-white/[0.045] px-4 text-sm font-semibold text-white outline-none placeholder:text-[#777] focus:border-[#F2B84B] focus:shadow-[0_0_0_3px_rgba(242,184,75,0.14)]"
+                      />
+                    </label>
+                    <label className="grid gap-2">
+                      <span className="text-[0.66rem] font-black uppercase tracking-[0.16em] text-[#F2B84B]/75">
+                        WhatsApp
+                      </span>
+                      <input
+                        name="phone"
+                        placeholder="WhatsApp com DDD"
+                        required
+                        inputMode="tel"
+                        autoComplete="tel"
+                        minLength={10}
+                        maxLength={20}
+                        value={customerPhone}
+                        onChange={(event) => setCustomerPhone(event.target.value)}
+                        className="min-h-12 rounded-2xl border border-white/10 bg-white/[0.045] px-4 text-sm font-semibold text-white outline-none placeholder:text-[#777] focus:border-[#F2B84B] focus:shadow-[0_0_0_3px_rgba(242,184,75,0.14)]"
+                      />
+                    </label>
+                  </div>
+                  <label className="grid gap-2">
+                    <span className="text-[0.66rem] font-black uppercase tracking-[0.16em] text-[#F2B84B]/75">
+                      Observacoes opcionais
+                    </span>
+                    <textarea
+                      name="notes"
+                      placeholder="Algum detalhe para a barbearia?"
+                      value={notes}
+                      onChange={(event) => setNotes(event.target.value)}
+                      className="min-h-28 resize-y rounded-2xl border border-white/10 bg-white/[0.045] px-4 py-4 text-sm font-semibold text-white outline-none placeholder:text-[#777] focus:border-[#F2B84B] focus:shadow-[0_0_0_3px_rgba(242,184,75,0.14)]"
+                    />
+                  </label>
+                </section>
+
+                <BookingSummary
+                  service={service}
+                  date={date}
+                  startTime={startTime}
+                  customerName={customerName}
+                />
+              </div>
 
               {error ? (
                 <p className="rounded-2xl border border-red-400/25 bg-red-500/10 p-4 text-sm text-red-100">
@@ -932,10 +1114,12 @@ export function BookingApp({ slug }: { slug: string }) {
               <button
                 type="submit"
                 disabled={!canConfirm || booking}
-                className="inline-flex min-h-16 w-full items-center justify-center rounded-2xl bg-[#D6B07A] px-6 py-4 text-base font-black text-[#080808] shadow-[0_22px_65px_rgba(214,176,122,0.24)] transition hover:bg-[#e4caa5] disabled:cursor-not-allowed disabled:bg-white/12 disabled:text-[#B8AEA3] disabled:shadow-none"
+                className="inline-flex min-h-14 w-full items-center justify-center rounded-2xl bg-[#F2B84B] px-6 py-4 text-base font-black uppercase tracking-[0.08em] text-[#080808] shadow-[0_20px_58px_rgba(242,184,75,0.22)] transition hover:bg-[#ffd06b] disabled:cursor-not-allowed disabled:bg-white/12 disabled:text-[#B9B9B9] disabled:shadow-none"
               >
                 {booking ? "Agendando..." : "Confirmar agendamento"}
               </button>
+
+              <TrustFooter barbershop={barbershop} />
             </form>
           )}
         </section>

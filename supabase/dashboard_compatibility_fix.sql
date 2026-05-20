@@ -87,13 +87,16 @@ $$;
 create or replace view public.booked_slots
 with (security_invoker = true) as
 select
-  id,
-  barbershop_id,
-  appointment_date,
-  appointment_time,
-  status
+  appointments.id,
+  appointments.barbershop_id,
+  appointments.appointment_date,
+  appointments.appointment_time,
+  coalesce(services.duration_minutes, 30) as service_duration_minutes,
+  appointments.status
 from public.appointments
-where status <> 'cancelled';
+left join public.services
+  on services.id = appointments.service_id
+where appointments.status <> 'cancelled';
 
 create table if not exists public.business_settings (
   id uuid primary key default gen_random_uuid(),

@@ -183,13 +183,16 @@ on public.appointments (barbershop_id, appointment_date);
 create or replace view public.booked_slots
 with (security_invoker = true) as
 select
-  id,
-  barbershop_id,
-  appointment_date,
-  appointment_time,
-  status
+  appointments.id,
+  appointments.barbershop_id,
+  appointments.appointment_date,
+  appointments.appointment_time,
+  coalesce(services.duration_minutes, 30) as service_duration_minutes,
+  appointments.status
 from public.appointments
-where status <> 'cancelled';
+left join public.services
+  on services.id = appointments.service_id
+where appointments.status <> 'cancelled';
 
 alter table public.barbershops enable row level security;
 alter table public.services enable row level security;
@@ -546,6 +549,18 @@ begin
     raise exception 'Servico indisponivel.';
   end if;
 
+  if not exists (
+    select 1
+    from public.business_hours
+    where barbershop_id = p_barbershop_id
+      and weekday = extract(dow from p_appointment_date)::integer
+      and active
+      and p_appointment_time >= opens_at
+      and (p_appointment_time + make_interval(mins => v_duration_minutes)) <= closes_at
+  ) then
+    raise exception 'Este horario fica fora do expediente da barbearia.';
+  end if;
+
   if exists (
     select 1
     from public.business_hours
@@ -559,6 +574,24 @@ begin
       and (p_appointment_time + make_interval(mins => v_duration_minutes)) > lunch_starts_at
   ) then
     raise exception 'Este horario fica dentro da pausa para almoço.';
+  end if;
+
+  if exists (
+    select 1
+    from public.appointments
+    left join public.services
+      on services.id = appointments.service_id
+    where appointments.barbershop_id = p_barbershop_id
+      and appointments.appointment_date = p_appointment_date
+      and appointments.status <> 'cancelled'
+      and p_appointment_time < (
+        appointments.appointment_time +
+        make_interval(mins => coalesce(services.duration_minutes, 30))
+      )
+      and (p_appointment_time + make_interval(mins => v_duration_minutes)) >
+        appointments.appointment_time
+  ) then
+    raise exception 'Este horario acabou de ser ocupado. Escolha outro.';
   end if;
 
   select id

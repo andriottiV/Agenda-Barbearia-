@@ -1,0 +1,75 @@
+
+> agenda-barber@0.1.0 dev
+> next dev --port 3001
+
+▲ Next.js 16.2.6 (Turbopack)
+- Local:         http://localhost:3001
+- Network:       http://54.232.189.113:3001
+- Environments: .env.local
+✓ Ready in 631ms
+Creating turbopack project { dir: 'C:\\Users\\Andriotti\\agenda-barbearia', testMode: true }
+
+○ Compiling /dashboard ...
+ GET /dashboard 200 in 4.2s (next.js: 3.8s, application-code: 427ms)
+ GET / 200 in 736ms (next.js: 547ms, application-code: 189ms)
+ GET /manifest.webmanifest 200 in 525ms (next.js: 507ms, application-code: 18ms)
+ GET / 200 in 87ms (next.js: 8ms, application-code: 79ms)
+ GET /manifest.webmanifest 200 in 12ms (next.js: 7ms, application-code: 5ms)
+ GET /dashboard 200 in 113ms (next.js: 10ms, application-code: 103ms)
+ GET /dashboard 200 in 59ms (next.js: 5ms, application-code: 54ms)
+ GET /manifest.webmanifest 200 in 18ms (next.js: 8ms, application-code: 11ms)
+ GET /agendar/novandri 200 in 2.1s (next.js: 1760ms, application-code: 304ms)
+ GET /manifest.webmanifest 200 in 16ms (next.js: 6ms, application-code: 10ms)
+ GET / 200 in 201ms (next.js: 63ms, application-code: 138ms)
+ GET /manifest.webmanifest 200 in 26ms (next.js: 13ms, application-code: 13ms)
+ GET / 200 in 154ms (next.js: 7ms, application-code: 147ms)
+ GET /manifest.webmanifest 200 in 35ms (next.js: 25ms, application-code: 10ms)
+ GET /dashboard 200 in 82ms (next.js: 26ms, application-code: 56ms)
+ GET /manifest.webmanifest 200 in 12ms (next.js: 4ms, application-code: 8ms)
+ GET /agendar/novandri 200 in 340ms (next.js: 51ms, application-code: 289ms)
+ GET /manifest.webmanifest 200 in 20ms (next.js: 7ms, application-code: 12ms)
+ GET / 200 in 188ms (next.js: 18ms, application-code: 170ms)
+ GET /manifest.webmanifest 200 in 20ms (next.js: 11ms, application-code: 9ms)
+ GET /dashboard 200 in 104ms (next.js: 10ms, application-code: 95ms)
+ GET /manifest.webmanifest 200 in 32ms (next.js: 11ms, application-code: 21ms)
+ GET /agendar/novandri 200 in 274ms (next.js: 16ms, application-code: 258ms)
+ GET /manifest.webmanifest 200 in 30ms (next.js: 22ms, application-code: 7ms)
+✓ Compiled in 763ms
+ GET / 200 in 907ms (next.js: 233ms, application-code: 674ms)
+ GET /agendar/novandri 200 in 591ms (next.js: 252ms, application-code: 339ms)
+ GET / 200 in 210ms (next.js: 16ms, application-code: 193ms)
+ GET /agendar/novandri 200 in 106ms (next.js: 10ms, application-code: 95ms)
+ GET /manifest.webmanifest 200 in 138ms (next.js: 121ms, application-code: 17ms)
+ GET /manifest.webmanifest 200 in 13ms (next.js: 6ms, application-code: 7ms)
+✓ Compiled in 302ms
+ GET / 200 in 1386ms (next.js: 191ms, application-code: 1195ms)
+ GET /agendar/novandri 200 in 1046ms (next.js: 349ms, application-code: 698ms)
+ GET / 200 in 1111ms (next.js: 489ms, application-code: 622ms)
+ GET /agendar/novandri 200 in 700ms (next.js: 12ms, application-code: 688ms)
+ GET /agendar/novandri 200 in 234ms (next.js: 35ms, application-code: 199ms)
+ GET /agendar/novandri 200 in 1691ms (next.js: 10ms, application-code: 1681ms)
+ GET /agendar/novandri 200 in 1142ms (next.js: 81ms, application-code: 1060ms)
+✓ Compiled in 315ms
+ GET / 200 in 1022ms (next.js: 182ms, application-code: 840ms)
+ GET / 200 in 324ms (next.js: 11ms, application-code: 314ms)
+ GET /agendar/novandri 200 in 968ms (next.js: 356ms, application-code: 611ms)
+ GET /agendar/novandri 200 in 385ms (next.js: 19ms, application-code: 366ms)
+✓ Compiled in 293ms
+ GET / 200 in 945ms (next.js: 654ms, application-code: 292ms)
+ GET / 200 in 296ms (next.js: 8ms, application-code: 288ms)
+ GET /agendar/novandri 200 in 1048ms (next.js: 306ms, application-code: 742ms)
+ GET /agendar/novandri 200 in 437ms (next.js: 11ms, application-code: 426ms)
+✓ Compiled in 161ms
+ GET / 200 in 942ms (next.js: 187ms, application-code: 756ms)
+ GET / 200 in 600ms (next.js: 13ms, application-code: 588ms)
+ GET /agendar/novandri 200 in 579ms (next.js: 324ms, application-code: 255ms)
+ GET /agendar/novandri 200 in 111ms (next.js: 9ms, application-code: 101ms)
+ GET /manifest.webmanifest 200 in 100ms (next.js: 83ms, application-code: 17ms)
+ GET /manifest.webmanifest 200 in 12ms (next.js: 6ms, application-code: 6ms)
+✓ Compiled in 293ms
+ GET / 200 in 877ms (next.js: 233ms, application-code: 644ms)
+ GET / 200 in 677ms (next.js: 420ms, application-code: 257ms)
+ GET /agendar/novandri 200 in 683ms (next.js: 292ms, application-code: 391ms)
+ GET /agendar/novandri 200 in 199ms (next.js: 23ms, application-code: 176ms)
+ GET /manifest.webmanifest 200 in 104ms (next.js: 86ms, application-code: 18ms)
+ GET /manifest.webmanifest 200 in 17ms (next.js: 8ms, application-code: 9ms)
