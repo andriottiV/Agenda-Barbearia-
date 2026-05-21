@@ -207,6 +207,133 @@ create trigger appointments_enforce_freemium_limit
 before insert on public.appointments
 for each row execute function public.enforce_freemium_appointment_limit();
 
+create or replace function public.admin_set_barbershop_plan_by_id(
+  p_barbershop_id uuid,
+  p_plan text
+)
+returns table (
+  barbershop_id uuid,
+  owner_id uuid,
+  owner_email text,
+  barbershop_name text,
+  plan text,
+  monthly_appointments integer,
+  monthly_limit integer,
+  limit_reached boolean
+)
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if p_plan not in ('free', 'pro') then
+    raise exception 'Plano invalido. Use free ou pro.';
+  end if;
+
+  if not exists (
+    select 1
+    from public.barbershops
+    where id = p_barbershop_id
+  ) then
+    raise exception 'Barbearia nao encontrada.';
+  end if;
+
+  insert into public.barbershop_plans (barbershop_id, plan)
+  values (p_barbershop_id, p_plan)
+  on conflict (barbershop_id)
+  do update set plan = excluded.plan;
+
+  return query
+  select
+    barbershops.id,
+    barbershops.owner_id,
+    auth.users.email::text,
+    barbershops.name,
+    barbershop_plans.plan,
+    usage.monthly_appointments,
+    usage.monthly_limit,
+    usage.limit_reached
+  from public.barbershops
+  join auth.users
+    on auth.users.id = barbershops.owner_id
+  join public.barbershop_plans
+    on barbershop_plans.barbershop_id = barbershops.id
+  cross join lateral public.get_barbershop_plan_usage(barbershops.id) as usage
+  where barbershops.id = p_barbershop_id;
+end;
+$$;
+
+create or replace function public.admin_set_barbershop_plan_by_owner_email(
+  p_owner_email text,
+  p_plan text
+)
+returns table (
+  barbershop_id uuid,
+  owner_id uuid,
+  owner_email text,
+  barbershop_name text,
+  plan text,
+  monthly_appointments integer,
+  monthly_limit integer,
+  limit_reached boolean
+)
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_owner_id uuid;
+begin
+  if p_plan not in ('free', 'pro') then
+    raise exception 'Plano invalido. Use free ou pro.';
+  end if;
+
+  select id
+  into v_owner_id
+  from auth.users
+  where lower(email) = lower(trim(p_owner_email))
+  limit 1;
+
+  if v_owner_id is null then
+    raise exception 'Usuario nao encontrado para este e-mail.';
+  end if;
+
+  if not exists (
+    select 1
+    from public.barbershops
+    where owner_id = v_owner_id
+  ) then
+    raise exception 'Este usuario ainda nao possui barbearia.';
+  end if;
+
+  insert into public.barbershop_plans (barbershop_id, plan)
+  select id, p_plan
+  from public.barbershops
+  where owner_id = v_owner_id
+  on conflict (barbershop_id)
+  do update set plan = excluded.plan;
+
+  return query
+  select
+    barbershops.id,
+    barbershops.owner_id,
+    auth.users.email::text,
+    barbershops.name,
+    barbershop_plans.plan,
+    usage.monthly_appointments,
+    usage.monthly_limit,
+    usage.limit_reached
+  from public.barbershops
+  join auth.users
+    on auth.users.id = barbershops.owner_id
+  join public.barbershop_plans
+    on barbershop_plans.barbershop_id = barbershops.id
+  cross join lateral public.get_barbershop_plan_usage(barbershops.id) as usage
+  where barbershops.owner_id = v_owner_id
+  order by barbershops.created_at desc;
+end;
+$$;
+
 create or replace function public.create_public_appointment(
   p_barbershop_id uuid,
   p_service_id uuid,
@@ -352,5 +479,8 @@ grant execute on function public.count_barbershop_monthly_appointments(uuid) to 
 grant execute on function public.get_barbershop_plan_usage(uuid) to anon, authenticated;
 grant execute on function public.assert_barbershop_can_create_appointment(uuid, text) to anon, authenticated;
 grant execute on function public.create_public_appointment(uuid, uuid, date, time, text, text, text) to anon, authenticated;
+
+revoke all on function public.admin_set_barbershop_plan_by_id(uuid, text) from public, anon, authenticated;
+revoke all on function public.admin_set_barbershop_plan_by_owner_email(text, text) from public, anon, authenticated;
 
 notify pgrst, 'reload schema';

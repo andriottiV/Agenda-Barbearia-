@@ -1728,7 +1728,7 @@ export function DashboardApp() {
                       Plano atual
                     </p>
                     <h3 className="mt-1 text-2xl font-black text-[var(--premium-text-100)]">
-                      {planUsage.plan === "pro" ? "Pro" : "Free"}
+                      {planUsage.plan === "pro" ? "PRO" : "FREE"}
                     </h3>
                     <p className="mt-2 text-sm leading-6 text-[var(--premium-text-300)]">
                       {planUsage.monthly_limit
