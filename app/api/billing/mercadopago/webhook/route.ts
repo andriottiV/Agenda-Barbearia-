@@ -33,6 +33,22 @@ function paymentStatusToPlan(status: string) {
   return status === "approved" ? "pro" : "free";
 }
 
+function userIdFromExternalReference(value?: string | null) {
+  if (!value) return "";
+
+  try {
+    const parsed = JSON.parse(value) as { user_id?: unknown };
+
+    if (typeof parsed.user_id === "string") {
+      return parsed.user_id;
+    }
+  } catch {
+    return value;
+  }
+
+  return "";
+}
+
 export async function POST(request: Request) {
   const url = new URL(request.url);
   const xSignature = request.headers.get("x-signature") ?? "";
@@ -82,7 +98,7 @@ export async function POST(request: Request) {
   try {
     if (type === "subscription_preapproval") {
       const preapproval = await getMercadoPagoPreapproval(dataId);
-      const userId = preapproval.external_reference ?? "";
+      const userId = userIdFromExternalReference(preapproval.external_reference);
       const status = preapproval.status ?? "pending";
       const plan = subscriptionStatusToPlan(status);
 
@@ -129,7 +145,7 @@ export async function POST(request: Request) {
       }
 
       const preapproval = await getMercadoPagoPreapproval(mpSubscriptionId);
-      const userId = preapproval.external_reference ?? "";
+      const userId = userIdFromExternalReference(preapproval.external_reference);
 
       if (!userId) {
         return Response.json({ success: true, skipped: "external_reference ausente" });
@@ -171,7 +187,7 @@ export async function POST(request: Request) {
       }
 
       const preapproval = await getMercadoPagoPreapproval(mpSubscriptionId);
-      const userId = preapproval.external_reference ?? "";
+      const userId = userIdFromExternalReference(preapproval.external_reference);
 
       if (!userId) {
         return Response.json({ success: true, skipped: "external_reference ausente" });

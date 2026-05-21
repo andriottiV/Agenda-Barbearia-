@@ -3,7 +3,6 @@ import "server-only";
 import crypto from "crypto";
 
 const MP_API_BASE = "https://api.mercadopago.com";
-const PRO_PRICE = 19.9;
 
 function cleanEnvValue(value: string | undefined) {
   return value?.trim().replace(/^["']|["']$/g, "");
@@ -70,6 +69,15 @@ export type MercadoPagoPreapproval = {
   status?: string | null;
 };
 
+export type MercadoPagoPreapprovalPlan = {
+  id: string;
+  back_url?: string | null;
+  external_reference?: string | null;
+  init_point?: string | null;
+  reason?: string | null;
+  status?: string | null;
+};
+
 export type MercadoPagoPayment = {
   id: number | string;
   external_reference?: string | null;
@@ -92,44 +100,65 @@ export type MercadoPagoAuthorizedPayment = {
   status?: string | null;
 };
 
-export async function createHoraAiProSubscription({
-  appUrl,
-  payerEmail,
+export async function getMercadoPagoPreapprovalPlan(id: string) {
+  return mercadoPagoRequest<MercadoPagoPreapprovalPlan>(
+    `/preapproval_plan/${encodeURIComponent(id)}`,
+  );
+}
+
+export function buildHostedSubscriptionCheckoutUrl({
+  backUrl,
+  barbershopId,
+  initPoint,
   userId,
 }: {
-  appUrl: string;
-  payerEmail: string;
+  backUrl: string;
+  barbershopId: string;
+  initPoint: string;
+  userId: string;
+}) {
+  const url = new URL(initPoint);
+  const externalReference = JSON.stringify({
+    barbershop_id: barbershopId,
+    user_id: userId,
+  });
+
+  url.searchParams.set("external_reference", externalReference);
+  url.searchParams.set("back_url", backUrl);
+
+  return url.toString();
+}
+
+export async function getHoraAiProPlanCheckout({
+  backUrl,
+  barbershopId,
+  userId,
+}: {
+  backUrl: string;
+  barbershopId: string;
   userId: string;
 }) {
   const { proPlanId } = getMercadoPagoConfig();
-  const basePayload = {
-    back_url: `${appUrl.replace(/\/+$/, "")}/dashboard`,
-    external_reference: userId,
-    payer_email: payerEmail,
-  };
 
-  return mercadoPagoRequest<MercadoPagoPreapproval>("/preapproval", {
-    body: JSON.stringify(
-      proPlanId
-        ? {
-            ...basePayload,
-            preapproval_plan_id: proPlanId,
-            status: "pending",
-          }
-        : {
-            ...basePayload,
-            auto_recurring: {
-              currency_id: "BRL",
-              frequency: 1,
-              frequency_type: "months",
-              transaction_amount: PRO_PRICE,
-            },
-            reason: "HoraAi PRO",
-            status: "pending",
-          },
-    ),
-    method: "POST",
-  });
+  if (!proPlanId) {
+    throw new Error("MERCADO_PAGO_PRO_PLAN_ID ausente.");
+  }
+
+  const plan = await getMercadoPagoPreapprovalPlan(proPlanId);
+
+  if (!plan.init_point) {
+    throw new Error("Plano Mercado Pago nao retornou init_point.");
+  }
+
+  return {
+    checkoutUrl: buildHostedSubscriptionCheckoutUrl({
+      backUrl,
+      barbershopId,
+      initPoint: plan.init_point,
+      userId,
+    }),
+    plan,
+  };
 }
 
 export async function getMercadoPagoPreapproval(id: string) {

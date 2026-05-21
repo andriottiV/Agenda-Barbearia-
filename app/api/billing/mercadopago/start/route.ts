@@ -1,11 +1,6 @@
+import { getMercadoPagoConfig } from "../../../../lib/mercado-pago-server";
 import {
-  createHoraAiProSubscription,
-  getMercadoPagoConfig,
-} from "../../../../lib/mercado-pago-server";
-import {
-  createServerSupabaseAdminClient,
   createServerSupabaseClient,
-  getServerSupabaseDiagnostics,
 } from "../../../../lib/supabase-server";
 
 export const runtime = "nodejs";
@@ -42,106 +37,38 @@ export async function POST(request: Request) {
     );
   }
 
-  const adminSupabase = createServerSupabaseAdminClient();
-
-  if (!adminSupabase) {
-    return Response.json(
-      {
-        success: false,
-        error: "SUPABASE_SERVICE_ROLE_KEY ausente.",
-        diagnostics: getServerSupabaseDiagnostics(),
-      },
-      { status: 500 },
-    );
-  }
-
   const mpConfig = getMercadoPagoConfig();
 
-  if (!mpConfig.accessToken) {
+  if (!mpConfig.proPlanId) {
     return Response.json(
       {
         success: false,
-        error: "MERCADO_PAGO_ACCESS_TOKEN ausente.",
+        error: "MERCADO_PAGO_PRO_PLAN_ID ausente.",
         diagnostics: mpConfig.diagnostics,
       },
       { status: 500 },
     );
   }
 
-  const { data: shops, error: shopError } = await adminSupabase
-    .from("barbershops")
-    .select("id")
-    .eq("owner_id", user.id)
-    .limit(1);
+  const checkoutUrl = `https://www.mercadopago.com.br/subscriptions/checkout?preapproval_plan_id=${encodeURIComponent(
+    mpConfig.proPlanId,
+  )}`;
 
-  if (shopError) {
-    return Response.json(
-      { success: false, error: shopError.message },
-      { status: 500 },
-    );
-  }
-
-  if (!shops?.length) {
-    return Response.json(
-      {
-        success: false,
-        error: "Cadastre o perfil da barbearia antes de assinar o Pro.",
-      },
-      { status: 403 },
-    );
-  }
-
-  const appUrl =
-    process.env.NEXT_PUBLIC_APP_URL?.trim().replace(/\/+$/, "") ??
-    new URL(request.url).origin;
-
-  try {
-    const subscription = await createHoraAiProSubscription({
-      appUrl,
-      payerEmail: user.email,
-      userId: user.id,
-    });
-
-    const { error: upsertError } = await adminSupabase
-      .from("subscriptions")
-      .upsert(
-        {
-          mp_customer_id: subscription.payer_id
-            ? String(subscription.payer_id)
-            : null,
-          mp_subscription_id: subscription.id,
-          next_payment_date: subscription.next_payment_date ?? null,
-          plan: "pro",
-          status: subscription.status ?? "pending",
-          updated_at: new Date().toISOString(),
-          user_id: user.id,
-        },
-        { onConflict: "user_id" },
-      );
-
-    if (upsertError) {
-      return Response.json(
-        { success: false, error: upsertError.message },
-        { status: 500 },
-      );
-    }
-
-    return Response.json({
-      success: true,
-      checkoutUrl: subscription.init_point,
-      subscriptionId: subscription.id,
-      status: subscription.status ?? "pending",
-    });
-  } catch (error) {
-    return Response.json(
-      {
-        success: false,
-        error:
-          error instanceof Error
-            ? error.message
-            : "Nao foi possivel iniciar a assinatura.",
-      },
-      { status: 502 },
-    );
-  }
+  /*
+   * Checkout hospedado do plano nao recebe card_token_id no HoraAi e tambem nao
+   * cria uma preapproval no nosso backend antes do pagamento.
+   *
+   * Limitacao atual: neste fluxo direto pelo init_point do plano, o webhook pode
+   * nao receber um external_reference confiavel para vincular automaticamente a
+   * assinatura ao usuario. A proxima etapa segura e criar um vinculo
+   * pending_subscription antes do redirect ou usar uma back_url assinada com um
+   * identificador seguro para reconciliar usuario <-> assinatura.
+   */
+  return Response.json({
+    success: true,
+    checkoutUrl,
+    planId: mpConfig.proPlanId,
+    reason: "HoraAi PRO",
+    status: "checkout_hosted",
+  });
 }
