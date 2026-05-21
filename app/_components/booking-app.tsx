@@ -45,6 +45,14 @@ type SuccessDetails = {
   appointmentTime: string;
 } | null;
 
+type PlanUsage = {
+  limit_reached: boolean;
+  monthly_appointments: number;
+  monthly_limit: number | null;
+  plan: "free" | "pro" | string;
+  remaining: number | null;
+};
+
 function isMissingDisplayOrderError(error: SupabaseErrorLike | null | undefined) {
   const text = `${error?.code ?? ""} ${error?.message ?? ""} ${
     error?.details ?? ""
@@ -504,16 +512,19 @@ export function BookingApp({ slug }: { slug: string }) {
   const [booking, setBooking] = useState(false);
   const [success, setSuccess] = useState<SuccessDetails>(null);
   const [error, setError] = useState("");
+  const [planUsage, setPlanUsage] = useState<PlanUsage | null>(null);
 
   const service = services.find((item) => item.id === serviceId);
   const weekday = new Date(`${date}T12:00:00`).getDay();
   const dayHours = hours.find((item) => item.weekday === weekday);
+  const freeLimitReached = Boolean(planUsage?.limit_reached);
   const canConfirm = Boolean(
     service &&
       date &&
       startTime &&
       customerName.trim().length >= 2 &&
-      hasValidPhone(customerPhone),
+      hasValidPhone(customerPhone) &&
+      !freeLimitReached,
   );
 
   const slots = useMemo(() => {
@@ -579,6 +590,23 @@ export function BookingApp({ slug }: { slug: string }) {
     return fallbackRes;
   }
 
+  async function loadPlanUsage(barbershopId: string) {
+    const { data, error: usageError } = await supabase
+      .rpc("get_barbershop_plan_usage", {
+        p_barbershop_id: barbershopId,
+      })
+      .maybeSingle();
+
+    if (usageError) {
+      logSupabaseError("[Booking] Erro ao carregar uso do plano", usageError, {
+        barbershopId,
+      });
+      return null;
+    }
+
+    return data as PlanUsage | null;
+  }
+
   useEffect(() => {
     async function loadShop() {
       setLoading(true);
@@ -607,7 +635,7 @@ export function BookingApp({ slug }: { slug: string }) {
       const currentShop = shop as Barbershop;
       setBarbershop(currentShop);
 
-      const [servicesRes, hoursRes] = await Promise.all([
+      const [servicesRes, hoursRes, usageRes] = await Promise.all([
         loadPublicServices(currentShop.id),
         supabase
           .from("business_hours")
@@ -615,6 +643,7 @@ export function BookingApp({ slug }: { slug: string }) {
           .eq("barbershop_id", currentShop.id)
           .eq("active", true)
           .order("weekday"),
+        loadPlanUsage(currentShop.id),
       ]);
 
       const firstError = servicesRes.error ?? hoursRes.error;
@@ -629,6 +658,7 @@ export function BookingApp({ slug }: { slug: string }) {
 
       setServices(normalizeServices(servicesRes.data as Service[] | null));
       setHours((hoursRes.data ?? []) as BusinessHour[]);
+      setPlanUsage(usageRes);
       setLoading(false);
     }
 
@@ -668,6 +698,13 @@ export function BookingApp({ slug }: { slug: string }) {
 
   async function book(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (freeLimitReached) {
+      setError(
+        "A agenda online desta barbearia atingiu o limite mensal gratuito. Fale com a barbearia pelo WhatsApp.",
+      );
+      return;
+    }
+
     if (!barbershop || !service || !startTime) {
       setError("Escolha servico, data e horario para confirmar.");
       return;
@@ -774,6 +811,7 @@ export function BookingApp({ slug }: { slug: string }) {
       setServiceId("");
       setStartTime("");
       await reloadAppointments(barbershop.id, date);
+      setPlanUsage(await loadPlanUsage(barbershop.id));
       notifyNewAppointment({
         barbershopId: barbershop.id,
         barbershopSlug: barbershop.slug,
@@ -1111,12 +1149,23 @@ export function BookingApp({ slug }: { slug: string }) {
                 </p>
               ) : null}
 
+              {freeLimitReached ? (
+                <p className="rounded-2xl border border-[#F2B84B]/25 bg-[#F2B84B]/10 p-4 text-sm leading-6 text-[#F2CF91]">
+                  A agenda online desta barbearia atingiu o limite mensal gratuito.
+                  Fale com a barbearia pelo WhatsApp.
+                </p>
+              ) : null}
+
               <button
                 type="submit"
                 disabled={!canConfirm || booking}
                 className="inline-flex min-h-14 w-full items-center justify-center rounded-2xl bg-[#F2B84B] px-6 py-4 text-base font-black uppercase tracking-[0.08em] text-[#080808] shadow-[0_20px_58px_rgba(242,184,75,0.22)] transition hover:bg-[#ffd06b] disabled:cursor-not-allowed disabled:bg-white/12 disabled:text-[#B9B9B9] disabled:shadow-none"
               >
-                {booking ? "Agendando..." : "Confirmar agendamento"}
+                {booking
+                  ? "Agendando..."
+                  : freeLimitReached
+                    ? "Limite mensal atingido"
+                    : "Confirmar agendamento"}
               </button>
 
               <TrustFooter barbershop={barbershop} />

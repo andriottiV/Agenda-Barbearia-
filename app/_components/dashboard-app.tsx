@@ -51,6 +51,14 @@ type SupabaseErrorLike = {
   hint?: string;
 };
 
+type PlanUsage = {
+  limit_reached: boolean;
+  monthly_appointments: number;
+  monthly_limit: number | null;
+  plan: "free" | "pro" | string;
+  remaining: number | null;
+};
+
 const DISPLAY_ORDER_HOTFIX_MESSAGE =
   "Banco precisa do hotfix de ordenacao. Rode supabase/hotfix.sql no Supabase SQL Editor.";
 
@@ -151,11 +159,13 @@ export function DashboardApp() {
   const [serviceSavingId, setServiceSavingId] = useState<string | null>(null);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [planUsage, setPlanUsage] = useState<PlanUsage | null>(null);
   const notificationsRef = useRef<HTMLDivElement | null>(null);
   const pushNotifications = usePushNotifications(user);
 
   const publicPath = barbershop ? `/agendar/${barbershop.slug}` : "";
   const unreadNotifications = notifications.filter((item) => !item.read).length;
+  const freeLimitReached = Boolean(planUsage?.limit_reached);
 
   function slugify(value: string) {
     return value
@@ -198,12 +208,13 @@ export function DashboardApp() {
       setClients([]);
       setAppointments([]);
       setClientAppointments([]);
+      setPlanUsage(null);
       setLoading(false);
       setTab("profile");
       return;
     }
 
-    const [servicesRes, hoursRes, clientsRes, appointmentsRes, historyRes] =
+    const [servicesRes, hoursRes, clientsRes, appointmentsRes, historyRes, usageRes] =
       await Promise.all([
         loadServices(shop.id),
         supabase
@@ -237,6 +248,7 @@ export function DashboardApp() {
           .eq("barbershop_id", shop.id)
           .order("appointment_date", { ascending: false })
           .order("appointment_time", { ascending: false }),
+        loadPlanUsage(shop.id),
       ]);
 
     const firstError =
@@ -304,8 +316,26 @@ export function DashboardApp() {
     setClients((clientsRes.data ?? []) as Client[]);
     setAppointments(normalizeAppointments(appointmentsRes.data ?? []));
     setClientAppointments(normalizeAppointments(historyRes.data ?? []));
+    setPlanUsage(usageRes);
     await loadNotifications(currentUser.id);
     setLoading(false);
+  }
+
+  async function loadPlanUsage(barbershopId: string) {
+    const { data, error } = await supabase
+      .rpc("get_barbershop_plan_usage", {
+        p_barbershop_id: barbershopId,
+      })
+      .maybeSingle();
+
+    if (error) {
+      logSupabaseError("[Dashboard] Erro ao carregar uso do plano", error, {
+        barbershopId,
+      });
+      return null;
+    }
+
+    return data as PlanUsage | null;
   }
 
   async function loadNotifications(userId = user?.id) {
@@ -1264,6 +1294,13 @@ export function DashboardApp() {
     event.preventDefault();
     if (!barbershop) return;
 
+    if (freeLimitReached) {
+      setNotice(
+        "Seu plano gratuito atingiu 20 agendamentos este mês. Faça upgrade para continuar recebendo novos horários.",
+      );
+      return;
+    }
+
     const form = event.currentTarget;
     const formData = new FormData(form);
     const service = services.find((item) => item.id === formData.get("service_id"));
@@ -1683,6 +1720,36 @@ export function DashboardApp() {
                 />
                 <AgendaMetric label="Horarios livres" value={String(adminAvailableSlots.length)} />
               </div>
+
+              {planUsage ? (
+                <div className="mt-5 grid gap-3 rounded-[var(--premium-radius-md)] border border-[var(--premium-border-soft)] bg-black/25 p-4 md:grid-cols-[1fr_auto] md:items-center">
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-[0.16em] text-[var(--premium-gold-300)]">
+                      Plano atual
+                    </p>
+                    <h3 className="mt-1 text-2xl font-black text-[var(--premium-text-100)]">
+                      {planUsage.plan === "pro" ? "Pro" : "Free"}
+                    </h3>
+                    <p className="mt-2 text-sm leading-6 text-[var(--premium-text-300)]">
+                      {planUsage.monthly_limit
+                        ? `${planUsage.monthly_appointments} / ${planUsage.monthly_limit} agendamentos neste mês`
+                        : `${planUsage.monthly_appointments} agendamentos neste mês - ilimitado`}
+                    </p>
+                    {planUsage.limit_reached ? (
+                      <p className="mt-2 rounded-[var(--premium-radius-sm)] border border-red-400/25 bg-red-500/10 px-3 py-2 text-sm leading-5 text-red-100">
+                        Seu plano gratuito atingiu 20 agendamentos este mês.
+                        Faça upgrade para continuar recebendo novos horários.
+                      </p>
+                    ) : null}
+                  </div>
+                  <Link
+                    href="/upgrade"
+                    className="inline-flex min-h-11 items-center justify-center rounded-[var(--premium-radius-md)] border border-[var(--premium-border-strong)] px-4 py-2 text-sm font-black text-[var(--premium-gold-300)]"
+                  >
+                    Ver plano Pro
+                  </Link>
+                </div>
+              ) : null}
             </div>
 
             <div className="grid gap-5 xl:grid-cols-[minmax(0,1.45fr)_minmax(18rem,0.65fr)]">
@@ -1795,8 +1862,17 @@ export function DashboardApp() {
                       placeholder="Observacoes"
                       className="field min-h-20 py-3"
                     />
-                    <button disabled={actionLoading} className="primary-button">
-                      Criar agendamento
+                    {freeLimitReached ? (
+                      <p className="rounded-[var(--premium-radius-md)] border border-red-400/25 bg-red-500/10 px-3 py-2 text-sm leading-5 text-red-100">
+                        Seu plano gratuito atingiu 20 agendamentos este mês. Faça
+                        upgrade para continuar recebendo novos horários.
+                      </p>
+                    ) : null}
+                    <button
+                      disabled={actionLoading || freeLimitReached}
+                      className="primary-button"
+                    >
+                      {freeLimitReached ? "Limite mensal atingido" : "Criar agendamento"}
                     </button>
                   </form>
                 </Panel>

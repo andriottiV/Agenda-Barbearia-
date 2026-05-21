@@ -38,5 +38,13 @@ export function friendlySupabaseError(error: SupabaseLikeError | null | undefine
     return DATABASE_SETUP_MESSAGE;
   }
 
+  if (normalizedText.includes("plano gratuito atingiu 20 agendamentos")) {
+    return "Seu plano gratuito atingiu 20 agendamentos este mês. Faça upgrade para continuar recebendo novos horários.";
+  }
+
+  if (normalizedText.includes("limite mensal gratuito")) {
+    return "A agenda online desta barbearia atingiu o limite mensal gratuito. Fale com a barbearia pelo WhatsApp.";
+  }
+
   return error.message ?? "Nao foi possivel completar a operacao.";
 }
