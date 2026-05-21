@@ -476,7 +476,7 @@ function TrustFooter({ barbershop }: { barbershop: Barbershop }) {
   return (
     <footer className="grid gap-4">
       <div className="grid gap-2 sm:grid-cols-3">
-        {["Confirmacao imediata", "Lembretes automaticos", "Atendimento exclusivo"].map(
+        {["Confirmacao imediata", "Agenda organizada", "Atendimento exclusivo"].map(
           (item) => (
             <div
               key={item}
@@ -700,7 +700,7 @@ export function BookingApp({ slug }: { slug: string }) {
     event.preventDefault();
     if (freeLimitReached) {
       setError(
-        "A agenda online desta barbearia atingiu o limite mensal gratuito. Fale com a barbearia pelo WhatsApp.",
+        "A agenda online desta barbearia esta temporariamente indisponivel. Fale com a barbearia pelo WhatsApp.",
       );
       return;
     }
@@ -1151,7 +1151,7 @@ export function BookingApp({ slug }: { slug: string }) {
 
               {freeLimitReached ? (
                 <p className="rounded-2xl border border-[#F2B84B]/25 bg-[#F2B84B]/10 p-4 text-sm leading-6 text-[#F2CF91]">
-                  A agenda online desta barbearia atingiu o limite mensal gratuito.
+                  A agenda online desta barbearia esta temporariamente indisponivel.
                   Fale com a barbearia pelo WhatsApp.
                 </p>
               ) : null}

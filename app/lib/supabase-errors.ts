@@ -43,7 +43,7 @@ export function friendlySupabaseError(error: SupabaseLikeError | null | undefine
   }
 
   if (normalizedText.includes("limite mensal gratuito")) {
-    return "A agenda online desta barbearia atingiu o limite mensal gratuito. Fale com a barbearia pelo WhatsApp.";
+    return "A agenda online desta barbearia esta temporariamente indisponivel. Fale com a barbearia pelo WhatsApp.";
   }
 
   return error.message ?? "Nao foi possivel completar a operacao.";

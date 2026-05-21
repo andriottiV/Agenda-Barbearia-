@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "create-mp-plan": "node scripts/create-mp-plan.mjs",
     "start": "next start",
     "lint": "eslint"
   },

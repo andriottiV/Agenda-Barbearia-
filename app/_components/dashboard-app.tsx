@@ -59,6 +59,13 @@ type PlanUsage = {
   remaining: number | null;
 };
 
+type BillingSubscription = {
+  mp_subscription_id: string | null;
+  next_payment_date: string | null;
+  plan: "free" | "pro" | string;
+  status: string;
+};
+
 const DISPLAY_ORDER_HOTFIX_MESSAGE =
   "Banco precisa do hotfix de ordenacao. Rode supabase/hotfix.sql no Supabase SQL Editor.";
 
@@ -131,6 +138,25 @@ function hasValidPhone(value: string) {
   return digits.length >= 10 && digits.length <= 13;
 }
 
+function formatBillingDate(value?: string | null) {
+  if (!value) return "Nao informada";
+
+  return new Intl.DateTimeFormat("pt-BR", {
+    day: "2-digit",
+    month: "long",
+    year: "numeric",
+  }).format(new Date(value));
+}
+
+function billingStatusLabel(status?: string | null) {
+  if (status === "authorized" || status === "approved") return "Ativa";
+  if (status === "pending") return "Pendente";
+  if (status === "cancelled" || status === "canceled") return "Cancelada";
+  if (status === "paused") return "Pausada";
+  if (status === "rejected") return "Inadimplente";
+  return status || "Sem assinatura";
+}
+
 export function DashboardApp() {
   const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
@@ -160,12 +186,22 @@ export function DashboardApp() {
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [planUsage, setPlanUsage] = useState<PlanUsage | null>(null);
+  const [billingSubscription, setBillingSubscription] =
+    useState<BillingSubscription | null>(null);
   const notificationsRef = useRef<HTMLDivElement | null>(null);
   const pushNotifications = usePushNotifications(user);
 
   const publicPath = barbershop ? `/agendar/${barbershop.slug}` : "";
   const unreadNotifications = notifications.filter((item) => !item.read).length;
   const freeLimitReached = Boolean(planUsage?.limit_reached);
+  const isProPlan = planUsage?.plan === "pro";
+  const monthlyLimit = planUsage?.monthly_limit ?? 20;
+  const monthlyAppointments = planUsage?.monthly_appointments ?? 0;
+  const freeUsagePercent = Math.min(
+    100,
+    monthlyLimit ? Math.round((monthlyAppointments / monthlyLimit) * 100) : 0,
+  );
+  const freeUsageWarning = !isProPlan && monthlyAppointments >= 15 && monthlyAppointments < 20;
 
   function slugify(value: string) {
     return value
@@ -209,13 +245,21 @@ export function DashboardApp() {
       setAppointments([]);
       setClientAppointments([]);
       setPlanUsage(null);
+      setBillingSubscription(null);
       setLoading(false);
       setTab("profile");
       return;
     }
 
-    const [servicesRes, hoursRes, clientsRes, appointmentsRes, historyRes, usageRes] =
-      await Promise.all([
+    const [
+      servicesRes,
+      hoursRes,
+      clientsRes,
+      appointmentsRes,
+      historyRes,
+      usageRes,
+      subscriptionRes,
+    ] = await Promise.all([
         loadServices(shop.id),
         supabase
           .from("business_hours")
@@ -249,6 +293,7 @@ export function DashboardApp() {
           .order("appointment_date", { ascending: false })
           .order("appointment_time", { ascending: false }),
         loadPlanUsage(shop.id),
+        loadBillingSubscription(currentUser.id),
       ]);
 
     const firstError =
@@ -317,6 +362,7 @@ export function DashboardApp() {
     setAppointments(normalizeAppointments(appointmentsRes.data ?? []));
     setClientAppointments(normalizeAppointments(historyRes.data ?? []));
     setPlanUsage(usageRes);
+    setBillingSubscription(subscriptionRes);
     await loadNotifications(currentUser.id);
     setLoading(false);
   }
@@ -336,6 +382,23 @@ export function DashboardApp() {
     }
 
     return data as PlanUsage | null;
+  }
+
+  async function loadBillingSubscription(userId: string) {
+    const { data, error } = await supabase
+      .from("subscriptions")
+      .select("plan, status, mp_subscription_id, next_payment_date")
+      .eq("user_id", userId)
+      .maybeSingle();
+
+    if (error) {
+      logSupabaseError("[Dashboard] Erro ao carregar assinatura", error, {
+        userId,
+      });
+      return null;
+    }
+
+    return data as BillingSubscription | null;
   }
 
   async function loadNotifications(userId = user?.id) {
@@ -797,6 +860,49 @@ export function DashboardApp() {
   async function signOut() {
     await supabase.auth.signOut();
     router.replace("/");
+  }
+
+  async function sessionToken() {
+    const { data, error } = await supabase.auth.getSession();
+
+    if (error) throw error;
+
+    return data.session?.access_token ?? "";
+  }
+
+  async function cancelProSubscription() {
+    if (!user) return;
+
+    setActionLoading(true);
+    try {
+      const token = await sessionToken();
+      const response = await fetch("/api/billing/mercadopago/cancel", {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${token}`,
+        },
+      });
+      const payload = (await response.json()) as {
+        error?: string;
+        success?: boolean;
+      };
+
+      if (!response.ok || !payload.success) {
+        setNotice(payload.error ?? "Nao foi possivel cancelar a assinatura.");
+        return;
+      }
+
+      setNotice("Assinatura cancelada. Seu plano voltou para o Gratuito.");
+      await load(user);
+    } catch (error) {
+      setNotice(
+        error instanceof Error
+          ? error.message
+          : "Nao foi possivel cancelar a assinatura.",
+      );
+    } finally {
+      setActionLoading(false);
+    }
   }
 
   async function copyPublicLink() {
@@ -1296,7 +1402,7 @@ export function DashboardApp() {
 
     if (freeLimitReached) {
       setNotice(
-        "Seu plano gratuito atingiu 20 agendamentos este mês. Faça upgrade para continuar recebendo novos horários.",
+        "Voce atingiu o limite gratis de 20 agendamentos neste mes. O painel continua disponivel, mas novos horarios ficam bloqueados ate o upgrade.",
       );
       return;
     }
@@ -1722,32 +1828,107 @@ export function DashboardApp() {
               </div>
 
               {planUsage ? (
-                <div className="mt-5 grid gap-3 rounded-[var(--premium-radius-md)] border border-[var(--premium-border-soft)] bg-black/25 p-4 md:grid-cols-[1fr_auto] md:items-center">
-                  <div>
-                    <p className="text-xs font-bold uppercase tracking-[0.16em] text-[var(--premium-gold-300)]">
-                      Plano atual
-                    </p>
-                    <h3 className="mt-1 text-2xl font-black text-[var(--premium-text-100)]">
-                      {planUsage.plan === "pro" ? "PRO" : "FREE"}
+                <div
+                  className={`mt-5 grid gap-4 rounded-[var(--premium-radius-md)] border p-4 md:grid-cols-[1fr_auto] md:items-center ${
+                    freeLimitReached
+                      ? "border-red-400/30 bg-red-500/10"
+                      : freeUsageWarning
+                        ? "border-[var(--premium-border-strong)] bg-[rgba(214,176,122,0.1)]"
+                        : "border-[var(--premium-border-soft)] bg-black/25"
+                  }`}
+                >
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-3">
+                      <p className="text-xs font-bold uppercase tracking-[0.16em] text-[var(--premium-gold-300)]">
+                        Plano atual
+                      </p>
+                      <span className="rounded-full border border-[var(--premium-border-strong)] px-3 py-1 text-xs font-black text-[var(--premium-gold-300)]">
+                        {isProPlan ? "Pro" : "Gratuito"}
+                      </span>
+                    </div>
+
+                    <h3 className="mt-2 text-2xl font-black text-[var(--premium-text-100)]">
+                      {isProPlan
+                        ? "Agendamentos ilimitados"
+                        : `${monthlyAppointments} / ${monthlyLimit} agendamentos`}
                     </h3>
-                    <p className="mt-2 text-sm leading-6 text-[var(--premium-text-300)]">
-                      {planUsage.monthly_limit
-                        ? `${planUsage.monthly_appointments} / ${planUsage.monthly_limit} agendamentos neste mês`
-                        : `${planUsage.monthly_appointments} agendamentos neste mês - ilimitado`}
+                    <p className="mt-1 text-sm leading-6 text-[var(--premium-text-300)]">
+                      {isProPlan
+                        ? `${monthlyAppointments} agendamentos criados neste mes.`
+                        : "Uso mensal do plano gratuito."}
                     </p>
-                    {planUsage.limit_reached ? (
-                      <p className="mt-2 rounded-[var(--premium-radius-sm)] border border-red-400/25 bg-red-500/10 px-3 py-2 text-sm leading-5 text-red-100">
-                        Seu plano gratuito atingiu 20 agendamentos este mês.
-                        Faça upgrade para continuar recebendo novos horários.
+
+                    <div className="mt-3 grid gap-2 text-sm text-[var(--premium-text-300)] sm:grid-cols-2">
+                      <p className="rounded-[var(--premium-radius-sm)] border border-[var(--premium-border-soft)] bg-black/20 px-3 py-2">
+                        Status:{" "}
+                        <span className="font-bold text-[var(--premium-text-100)]">
+                          {billingStatusLabel(billingSubscription?.status)}
+                        </span>
+                      </p>
+                      <p className="rounded-[var(--premium-radius-sm)] border border-[var(--premium-border-soft)] bg-black/20 px-3 py-2">
+                        Proxima cobranca:{" "}
+                        <span className="font-bold text-[var(--premium-text-100)]">
+                          {isProPlan
+                            ? formatBillingDate(
+                                billingSubscription?.next_payment_date,
+                              )
+                            : "-"}
+                        </span>
+                      </p>
+                    </div>
+
+                    {!isProPlan ? (
+                      <div className="mt-4">
+                        <div className="h-2 overflow-hidden rounded-full bg-white/10">
+                          <div
+                            className={`h-full rounded-full ${
+                              freeLimitReached
+                                ? "bg-red-400"
+                                : freeUsageWarning
+                                  ? "bg-[var(--premium-gold-300)]"
+                                  : "bg-emerald-400"
+                            }`}
+                            style={{ width: `${freeUsagePercent}%` }}
+                          />
+                        </div>
+                        <p className="mt-2 text-xs font-semibold text-[var(--premium-text-500)]">
+                          {freeUsagePercent}% do limite gratuito usado
+                        </p>
+                      </div>
+                    ) : null}
+
+                    {freeUsageWarning ? (
+                      <p className="mt-3 rounded-[var(--premium-radius-sm)] border border-[var(--premium-border-strong)] bg-black/20 px-3 py-2 text-sm leading-5 text-[var(--premium-gold-300)]">
+                        Voce esta perto do limite gratuito. O Pro libera
+                        agendamentos ilimitados.
+                      </p>
+                    ) : null}
+
+                    {freeLimitReached ? (
+                      <p className="mt-3 rounded-[var(--premium-radius-sm)] border border-red-400/25 bg-red-500/10 px-3 py-2 text-sm leading-5 text-red-100">
+                        Voce atingiu o limite gratis de 20 agendamentos neste mes.
+                        Novos horarios ficam bloqueados ate fazer upgrade.
                       </p>
                     ) : null}
                   </div>
-                  <Link
-                    href="/upgrade"
-                    className="inline-flex min-h-11 items-center justify-center rounded-[var(--premium-radius-md)] border border-[var(--premium-border-strong)] px-4 py-2 text-sm font-black text-[var(--premium-gold-300)]"
-                  >
-                    Ver plano Pro
-                  </Link>
+
+                  {!isProPlan ? (
+                    <Link
+                      href="/upgrade"
+                      className="inline-flex min-h-11 items-center justify-center rounded-[var(--premium-radius-md)] border border-[var(--premium-border-strong)] bg-[linear-gradient(135deg,var(--premium-gold-300),var(--premium-gold-500))] px-4 py-2 text-sm font-black text-black"
+                    >
+                      Ver plano Pro
+                    </Link>
+                  ) : billingSubscription?.mp_subscription_id ? (
+                    <button
+                      type="button"
+                      disabled={actionLoading}
+                      onClick={cancelProSubscription}
+                      className="inline-flex min-h-11 items-center justify-center rounded-[var(--premium-radius-md)] border border-red-300/30 px-4 py-2 text-sm font-black text-red-100 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      Cancelar assinatura
+                    </button>
+                  ) : null}
                 </div>
               ) : null}
             </div>
@@ -1864,8 +2045,9 @@ export function DashboardApp() {
                     />
                     {freeLimitReached ? (
                       <p className="rounded-[var(--premium-radius-md)] border border-red-400/25 bg-red-500/10 px-3 py-2 text-sm leading-5 text-red-100">
-                        Seu plano gratuito atingiu 20 agendamentos este mês. Faça
-                        upgrade para continuar recebendo novos horários.
+                        Voce atingiu o limite gratis de 20 agendamentos neste mes.
+                        O painel continua disponivel, mas novos horarios ficam
+                        bloqueados ate fazer upgrade.
                       </p>
                     ) : null}
                     <button
